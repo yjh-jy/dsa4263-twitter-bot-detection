@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
@@ -6,7 +7,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import OneHotEncoder, StandardScaler, MinMaxScaler, RobustScaler, FunctionTransformer, PowerTransformer
 from sklearn.linear_model import LogisticRegression
-from imblearn.pipeline import Pipeline as ImbPipeline  # only if you oversample
+from imblearn.pipeline import Pipeline as ImbPipeline
 from imblearn.over_sampling import SMOTENC
 
 
@@ -57,7 +58,8 @@ num_standard = Pipeline([
 ])
 num_yeo_johnson = Pipeline([
     ('imp', SimpleImputer(strategy='median')),
-    ('sc',  PowerTransformer(method='yeo-johnson'))
+    ('sc',  PowerTransformer(method='yeo-johnson')),
+    ('scale', StandardScaler())
 ])
 num_robust = Pipeline([
     ('imp', SimpleImputer(strategy='median')),
@@ -85,8 +87,7 @@ pipe = Pipeline([
     ('pre', pre),
 ])
 
-import os
-
+# Ingest CSV into interim folder
 
 # 1) Fit the pipeline on TRAIN only
 pipe.fit(X_train, y_train)
@@ -110,3 +111,7 @@ test_out  = X_test_proc_df.assign(account_type=y_test.values)
 
 train_out.to_csv("data/interim/twitter_train_processed.csv", index=False)
 test_out.to_csv("data/interim/twitter_test_processed.csv", index=False)
+
+
+# Or can just export the pipe 
+__all__ = ['pipe']
