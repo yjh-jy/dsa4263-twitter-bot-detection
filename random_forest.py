@@ -1,21 +1,23 @@
 import pandas as pd
-from sklearn.model_selection import train_test_split, RandomizedSearchCV
+from sklearn.model_selection import train_test_split #, RandomizedSearchCV
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import roc_auc_score, average_precision_score, precision_score, recall_score, f1_score
-from scipy.stats import randint
+# from scipy.stats import randint
 import os
 import joblib
+import itertools
 
-# Load and prepare datasets
 train_df = pd.read_csv('data/interim/twitter_train_processed.csv', index_col=0)
 test_df = pd.read_csv('data/interim/twitter_test_processed.csv', index_col=0)
 
-X = train_df.drop(columns=['account_type'])
-y = train_df['account_type']
+X_train = train_df.drop(columns=['account_type'])
+y_train = train_df['account_type']
 
-# 8:1:1 train-test-val split
-X_train, X_temp, y_train, y_temp = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
-X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, stratify=y_temp, random_state=42)
+X_test_val = test_df.drop(columns=['account_type'])
+y_test_val = test_df['account_type']
+
+# 1:1 test-val split
+X_val, X_test, y_val, y_test = train_test_split(X_test_val, y_test_val, test_size=0.5, stratify=y_test_val, random_state=42)
 
 print(f"Train size: {len(X_train)}, Validation size: {len(X_val)}, Test size: {len(X_test)}")
 
@@ -38,50 +40,61 @@ def evaluate(model, X, y, label="Validation"):
     print(f"F1-score: {f1:.4f}")
     return auc, pr_auc, precision, recall, f1
 
-# Hyperparameter tuning
-rf_base = RandomForestClassifier(random_state=42, n_jobs=-1)
+best_val_score = 0
+best_model_params = None
+best_model = None
 
-# Parameter grid to explore
 param_dist = {
-    "n_estimators": randint(100, 500),
-    "max_depth": [None, 5, 10, 20, 30, 50],
-    "min_samples_split": randint(2, 10),
-    "min_samples_leaf": randint(1, 5),
-    "max_features": ["sqrt", "log2", None],
+    "n_estimators": [100, 200, 300],
+    "max_depth": [None, 10, 20],
+    "min_samples_split": [2, 5],
+    "min_samples_leaf": [1, 2],
+    "max_features": ["sqrt", None],
     "bootstrap": [True, False]
 }
 
-# Randomized search setup
-rf_random = RandomizedSearchCV(
-    estimator=rf_base,
-    param_distributions=param_dist,
-    n_iter=30,                  
-    scoring="roc_auc",          
-    cv=3,                       
-    verbose=2,
-    random_state=42,
-    n_jobs=-1
-)
+# Generate all combinations of hyperparameters
+for combo in itertools.product(
+    param_dist["n_estimators"],
+    param_dist["max_depth"],
+    param_dist["min_samples_split"],
+    param_dist["min_samples_leaf"],
+    param_dist["max_features"],
+    param_dist["bootstrap"]
+):
 
-# Fit on training data
-rf_random.fit(X_train, y_train)
+    params = {
+        "n_estimators": combo[0],
+        "max_depth": combo[1],
+        "min_samples_split": combo[2],
+        "min_samples_leaf": combo[3],
+        "max_features": combo[4],
+        "bootstrap": combo[5]
+    }
 
-print("\nBest Hyperparameters found:")
-print(rf_random.best_params_)
+    model = RandomForestClassifier(**params, random_state=42, n_jobs=-1)
+    model.fit(X_train, y_train)
+    _, pr_auc, _, _, _ = evaluate(model, X_val, y_val, label=f"Validation (params={params})")
+    
+    if pr_auc > best_val_score:  
+        best_val_score = pr_auc
+        best_model_params = params
+        best_model = model
 
-# Retrieve and save best model
-best_rf = rf_random.best_estimator_
+print("\nBest hyperparameters:")
+print(best_model_params)
 
+# Refit best model on train+val sets
+X_train_full = pd.concat([X_train, X_val])
+y_train_full = pd.concat([y_train, y_val])
+
+refitted_model = RandomForestClassifier(**best_model_params, random_state=42, n_jobs=-1)
+refitted_model.fit(X_train_full, y_train_full)
+
+# Save the refitted model
 os.makedirs('models', exist_ok=True)
-joblib.dump(best_rf, 'models/best_rf.pkl')
+joblib.dump(refitted_model, 'models/best_rf.pkl')
 
-# Evaluate on validation and test set
-evaluate(best_rf, X_val, y_val, label="Validation")
-evaluate(best_rf, X_test, y_test, label="Test")
-
-# Predict and evaluate on actual test dataset
-X_actual_test = test_df.drop(columns=['account_type'])
-y_actual_test = test_df['account_type']
-
-print("\nActual Test Dataset Evaluation")
-evaluate(best_rf, X_actual_test, y_actual_test, label="Actual Test")
+# Evaluate on test set
+print("\nEvaluation on test set:")
+evaluate(refitted_model, X_test, y_test, label="Test")
