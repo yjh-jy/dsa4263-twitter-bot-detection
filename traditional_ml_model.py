@@ -30,7 +30,7 @@ scoring = "roc_auc"
 
 def make_pipe(estimator):
     return Pipeline([
-        ('preprocess', pipe),   # your FE + ColumnTransformer
+        ('preprocess', pipe),  
         ('clf', estimator)
     ])
 
@@ -42,20 +42,6 @@ models_and_grids = {
             "clf__C": [0.01, 0.1, 1, 10, 100]
         }
     },
-    # "SVM_RBF": {
-    #     "model": make_pipe(SVC(kernel='rbf', probability=True, class_weight='balanced')),
-    #     "param_grid": {
-    #         "clf__C": [0.1, 1, 10],
-    #         "clf__gamma": ["scale", 0.01, 0.1, 1.0]
-    #     }
-    # },
-    # "SVM_Linear": {
-    #     # using SVC with linear kernel to keep probability=True support
-    #     "model": make_pipe(SVC(kernel='linear', probability=False, class_weight='balanced')),
-    #     "param_grid": {
-    #         "clf__C": [0.1, 1, 10, 100]
-    #     }
-    # },
     "LDA": {
         # shrinkage works with solver='lsqr' or 'eigen'
         "model": make_pipe(LDA(solver='lsqr')),
@@ -74,6 +60,14 @@ models_and_grids = {
         "param_grid": {
             "clf__var_smoothing": np.logspace(-12, -7, 6)
         }
+    },
+    "SVM": {
+        "model": make_pipe(SVC()),
+        "param_grid": {
+            'clf__C': [0.1, 1, 1.0],
+            'clf__kernel': ['linear', 'rbf'],
+            'clf__gamma': ['scale', 'auto']
+        }
     }
 }
 
@@ -82,12 +76,10 @@ models_and_grids = {
 # Display Results
 
 def evaluate_and_plot(fitted_model, X_test, y_test, title, threshold=0.5,):
-    fitted_model.fit(X_train, y_train)
 
     if hasattr(fitted_model, "predict_proba"):
         y_prob = fitted_model.predict_proba(X_test)[:, 1]
     elif hasattr(fitted_model, "decision_function"):
-        # score to [0,1] for plotting/thresholding convenience
         s = fitted_model.decision_function(X_test)
         y_prob = (s - s.min()) / (s.max() - s.min() + 1e-12)
     else:
@@ -95,13 +87,11 @@ def evaluate_and_plot(fitted_model, X_test, y_test, title, threshold=0.5,):
 
     y_pred = (y_prob >= threshold).astype(int)
 
-    #Confusion Matrix
-    cm = confusion_matrix(y_test, y_pred)
-    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=["Human (0)", "Bot (1)"])
-
     fig, ax = plt.subplots(1, 3, figsize=(18, 5))
 
-    disp.plot(ax=ax[0], cmap="Blues", colorbar=False)
+    #Confusion Matrix
+    cm = confusion_matrix(y_test, y_pred)
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=["Human (0)", "Bot (1)"]).plot(ax=ax[0], cmap="Blues", colorbar=False)
     ax[0].set_title("Confusion Matrix")
 
     #ROC Curve
@@ -129,6 +119,7 @@ def evaluate_and_plot(fitted_model, X_test, y_test, title, threshold=0.5,):
     print(f"AUC: {auc:.3f}")
     plt.tight_layout()
     plt.show()
+    return auc
 
 
 
@@ -152,16 +143,7 @@ for name, cfg in models_and_grids.items():
     print(f"{name} CV best {scoring}: {gs.best_score_:.4f}")
 
     # Evaluate on holdout
-    evaluate_and_plot(gs.best_estimator_, X_test, y_test, name, threshold=0.5)
-
-    # Store summary for quick comparison
-    # (Compute AUC on test quickly for a table)
-    if hasattr(gs.best_estimator_, "predict_proba"):
-        y_prob_test = gs.best_estimator_.predict_proba(X_test)[:, 1]
-    else:
-        s = gs.best_estimator_.decision_function(X_test)
-        y_prob_test = (s - s.min()) / (s.max() - s.min() + 1e-12)
-    auc_test = roc_auc_score(y_test, y_prob_test)
+    auc_test = evaluate_and_plot(gs.best_estimator_, X_test, y_test, name, threshold=0.5)
 
     results_summary.append({
         "Model": name,
