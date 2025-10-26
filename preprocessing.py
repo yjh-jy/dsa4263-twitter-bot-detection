@@ -117,8 +117,8 @@ train_out = X_train_proc_df.assign(account_type=y_train.values)
 test_out  = X_test_proc_df.assign(account_type=y_test.values)
 
 
-train_out.to_csv("data/interim/twitter_train_processed_v2.csv", index=False)
-test_out.to_csv("data/interim/twitter_test_processed_v2.csv", index=False)
+train_out.to_csv("data/interim/twitter_train_processed.csv", index=False)
+test_out.to_csv("data/interim/twitter_test_processed.csv", index=False)
 
 
 # Or can just export the pipe 
