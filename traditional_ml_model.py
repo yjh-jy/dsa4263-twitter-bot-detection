@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import shap
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import StratifiedKFold, GridSearchCV, train_test_split
 from sklearn.metrics import (
@@ -71,8 +72,6 @@ models_and_grids = {
     }
 }
 
-
-
 # Display Results
 
 def evaluate_and_plot(fitted_model, X_test, y_test, title, threshold=0.5,):
@@ -122,6 +121,79 @@ def evaluate_and_plot(fitted_model, X_test, y_test, title, threshold=0.5,):
     return auc
 
 
+def shap_summary_for_model(fitted_model, X_train, X_test, model_name, max_bg=200, max_test=300, random_state=42):
+    """
+    SHAP on a fitted sklearn Pipeline:
+      - Transforms X via pipeline's 'preprocess'
+      - Explains the inner classifier ('clf') on numeric features
+      - Works whether the clf exposes predict_proba or decision_function
+    Produces a beeswarm + bar plot. Keeps runtime light via sampling.
+    """
+    # 1) Get steps
+    if "preprocess" not in fitted_model.named_steps or "clf" not in fitted_model.named_steps:
+        print(f"[SHAP] Skipping {model_name}: pipeline must have 'preprocess' and 'clf' steps.")
+        return
+    preprocessor = fitted_model.named_steps["preprocess"]
+    clf = fitted_model.named_steps["clf"]
+
+    # 2) Transform X to numeric (dense DataFrames with feature names)
+    def _to_dense_df(X_raw):
+        Xt = preprocessor.transform(X_raw)
+        # Sparse -> dense if needed
+        if hasattr(Xt, "toarray"):
+            Xt = Xt.toarray()
+        # Try to get feature names; otherwise fall back to generic
+        try:
+            cols = preprocessor.get_feature_names_out()
+        except Exception:
+            cols = [f"f{i}" for i in range(np.asarray(Xt).shape[1])]
+        return pd.DataFrame(Xt, columns=cols)
+
+    X_train_t = _to_dense_df(X_train)
+    X_test_t  = _to_dense_df(X_test)
+
+    # 3) Light background + display slices (keep fast)
+    bg = shap.sample(X_train_t, min(max_bg, len(X_train_t)), random_state=random_state)
+    X_disp = shap.sample(X_test_t, min(max_test, len(X_test_t)), random_state=random_state)
+
+    # 4) Prediction function on the *classifier* (post-preprocessing data)
+    if hasattr(clf, "predict_proba"):
+        pred_fn = lambda data: clf.predict_proba(data)  # -> (n, 2) for binary
+        class_index = 1  # positive class
+    elif hasattr(clf, "decision_function"):
+        # decision_function returns (n,) or (n,1) — wrap to (n,1)
+        pred_fn = lambda data: np.atleast_2d(clf.decision_function(data)).T
+        class_index = 0
+    else:
+        print(f"[SHAP] Skipping {model_name}: classifier lacks predict_proba/decision_function.")
+        return
+
+    # 5) Build explainer and compute SHAP values
+    # Model-agnostic Explainer handles any sklearn estimator here
+    explainer = shap.Explainer(pred_fn, bg)
+    sv = explainer(X_disp)
+
+    # 6) Select the correct output (prob class=1 or single score)
+    # sv.values shapes:
+    #  - (n, n_features) for single output
+    #  - (n, n_features, n_outputs) for multi-output (e.g., predict_proba)
+    if getattr(sv.values, "ndim", 2) == 3:
+        sv_pos = sv[:, :, class_index]
+    else:
+        sv_pos = sv
+
+    # 7) Plots
+    plt.figure(figsize=(8, 5))
+    shap.plots.beeswarm(sv_pos, show=False, max_display=20)
+    plt.title(f"SHAP Beeswarm — {model_name}" + (" (class=1)" if class_index == 1 else ""))
+    plt.tight_layout()
+    plt.show()
+
+    plt.figure(figsize=(8, 5))
+    shap.plots.bar(sv_pos, show=False, max_display=15)
+    plt.title(f"SHAP Top Features — {model_name}" + (" (class=1)" if class_index == 1 else ""))
+    plt.tight_layout()
+    plt.show()
 
 
 results_summary = []
@@ -144,6 +216,9 @@ for name, cfg in models_and_grids.items():
 
     # Evaluate on holdout
     auc_test = evaluate_and_plot(gs.best_estimator_, X_test, y_test, name, threshold=0.5)
+
+    # Calculate SHAP
+    shap_summary_for_model(gs.best_estimator_, X_train, X_test, name)
 
     results_summary.append({
         "Model": name,
