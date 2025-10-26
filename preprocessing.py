@@ -59,7 +59,7 @@ fe.set_output(transform="pandas")
 
 #3) Column Blocks (for transformation)
 num_cols_standard = ['favourites_count', 'statuses_count']
-num_cols_yeo_johnson  = ['average_tweets_per_day', 'account_age_days']
+num_cols_yeo_johnson  = ['average_tweets_per_day', 'account_age_days', 'description_length']
 num_cols_robust   = ['followers_count', 'friends_count', 'followers_friends_ratio']
 cat_cols = ['default_profile', 'default_profile_image', 'geo_enabled', 'verified', 'has_description']
 
@@ -84,10 +84,10 @@ cat = Pipeline([
 
 pre = ColumnTransformer(
     transformers=[
-        ('num_std',    num_standard, num_cols_standard),
-        ('num_yj',     num_yeo_johnson,   num_cols_yeo_johnson),
-        ('num_robust', num_robust,   num_cols_robust),
-        ('bin',        SimpleImputer(strategy='most_frequent'),          bin_cols)
+        ('num_std', num_standard, num_cols_standard),
+        ('num_yj', num_yeo_johnson, num_cols_yeo_johnson),
+        ('num_robust', num_robust, num_cols_robust),
+        ('cat', cat, cat_cols)
     ],
     remainder='drop',
     n_jobs=None,
