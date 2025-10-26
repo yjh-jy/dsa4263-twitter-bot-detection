@@ -24,6 +24,17 @@ X_train, X_test, y_train, y_test = train_test_split(
 def add_features(X):
     X = X.copy()
 
+    # new features
+    X['followers_friends_ratio'] = np.where(
+        (X.get('followers_count', 0) != 0) & (X.get('friends_count', 0) != 0),
+        X['followers_count'] / X['friends_count'], 0
+    )
+
+    X['description'] = X['description'].fillna("")
+    X['description_length'] = X['description'].astype(str).str.len()
+    # create has_description (1 if non-empty description, else 0)
+    X['has_description'] = X.get('description', '').astype(str).str.strip().ne('').astype(bool)
+
     #Numerical Columns (log scale it)
     num_cols = X.select_dtypes(include=['float64','int64']).columns
     for col in num_cols:
@@ -38,18 +49,19 @@ def add_features(X):
     X['default_profile_image'] = X['default_profile_image'].map({True:1, False:0})
     X['geo_enabled'] = X['geo_enabled'].map({True:1, False:0})
     X['verified'] = X['verified'].map({True:1, False:0})
+    X['has_description'] = X['has_description'].map({True:1, False:0})
 
     return X
 
-
-
-fe = FunctionTransformer(add_features, validate=False, feature_names_out='one-to-one')
+# fe = FunctionTransformer(add_features, validate=False, feature_names_out='one-to-one')
+fe = FunctionTransformer(add_features, validate=False)
+fe.set_output(transform="pandas")
 
 #3) Column Blocks (for transformation)
 num_cols_standard = ['favourites_count', 'statuses_count']
 num_cols_yeo_johnson  = ['average_tweets_per_day', 'account_age_days']
-num_cols_robust   = ['followers_count', 'friends_count']
-cat_cols = ['default_profile', 'default_profile_image', 'geo_enabled', 'verified']
+num_cols_robust   = ['followers_count', 'friends_count', 'followers_friends_ratio']
+cat_cols = ['default_profile', 'default_profile_image', 'geo_enabled', 'verified', 'has_description']
 
 #4) Imputing and Scaling
 num_standard = Pipeline([
@@ -109,8 +121,8 @@ test_out  = X_test_proc_df.assign(account_type=y_test.values)
 
 # 6) Save to disk
 
-train_out.to_csv("data/interim/twitter_train_processed.csv", index=False)
-test_out.to_csv("data/interim/twitter_test_processed.csv", index=False)
+train_out.to_csv("data/interim/twitter_train_processed_v2.csv", index=False)
+test_out.to_csv("data/interim/twitter_test_processed_v2.csv", index=False)
 
 
 # Or can just export the pipe 
