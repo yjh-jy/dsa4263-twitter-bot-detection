@@ -49,7 +49,7 @@ fe = FunctionTransformer(add_features, validate=False, feature_names_out='one-to
 num_cols_standard = ['favourites_count', 'statuses_count']
 num_cols_yeo_johnson  = ['average_tweets_per_day', 'account_age_days']
 num_cols_robust   = ['followers_count', 'friends_count']
-cat_cols = ['default_profile', 'default_profile_image', 'geo_enabled', 'verified']
+bin_cols = ['default_profile', 'default_profile_image', 'geo_enabled', 'verified']
 
 #4) Imputing and Scaling
 num_standard = Pipeline([
@@ -75,10 +75,11 @@ pre = ColumnTransformer(
         ('num_std',    num_standard, num_cols_standard),
         ('num_yj',     num_yeo_johnson,   num_cols_yeo_johnson),
         ('num_robust', num_robust,   num_cols_robust),
-        ('cat',        cat,          cat_cols)
+        ('bin',        SimpleImputer(strategy='most_frequent'),          bin_cols)
     ],
     remainder='drop',
-    n_jobs=None
+    n_jobs=None,
+    verbose_feature_names_out=False
 )
 
 
@@ -89,25 +90,20 @@ pipe = Pipeline([
 
 # Ingest CSV into interim folder
 
-# 1) Fit the pipeline on TRAIN only
 pipe.fit(X_train, y_train)
 
-# 2) Transform both TRAIN and TEST
 X_train_proc = pipe.transform(X_train)
 X_test_proc  = pipe.transform(X_test)
 
-# 3) Recover output feature names from the ColumnTransformer
 feat_names = pipe.named_steps['pre'].get_feature_names_out()
 
-# 4) Wrap into DataFrames (preserve row order via original indices)
 X_train_proc_df = pd.DataFrame(X_train_proc, columns=feat_names, index=X_train.index)
 X_test_proc_df  = pd.DataFrame(X_test_proc,  columns=feat_names, index=X_test.index)
 
-# 5) (Optional but handy) append the target back for inspection/exports
+
 train_out = X_train_proc_df.assign(account_type=y_train.values)
 test_out  = X_test_proc_df.assign(account_type=y_test.values)
 
-# 6) Save to disk
 
 train_out.to_csv("data/interim/twitter_train_processed.csv", index=False)
 test_out.to_csv("data/interim/twitter_test_processed.csv", index=False)
