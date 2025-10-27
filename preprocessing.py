@@ -100,7 +100,6 @@ num_robust = Pipeline([
 ])
 cat = Pipeline([
     ('imp', SimpleImputer(strategy='most_frequent')),
-    ('oh',  OneHotEncoder(handle_unknown='ignore', sparse_output=False))
 ])
 
 pre = ColumnTransformer(
@@ -179,14 +178,15 @@ pd.DataFrame(X_smote_proc, columns=feat_names_smote)\
 X_fe = pipe_adasyn.named_steps['fe'].fit_transform(X_train_ADASYN)
 
 adasyn = pipe_adasyn.named_steps['adasyn']
-X_adasyn_fe, y_adasyn = smote.fit_resample(X_fe, y_train_ADASYN)
+X_adasyn_fe, y_adasyn = adasyn.fit_resample(X_fe, y_train_ADASYN)
 
 preproc = pipe_adasyn.named_steps['pre']
+
 X_adasyn_proc = preproc.fit_transform(X_adasyn_fe, y_adasyn)
 feat_names_adasyn = preproc.get_feature_names_out()
 
 pd.DataFrame(X_adasyn_proc, columns=feat_names_adasyn)\
-  .assign(account_type=y_smote.values)\
+  .assign(account_type=y_adasyn.values)\
   .to_csv("data/interim/twitter_train_processed_ADASYN.csv", index=False)
 
 
