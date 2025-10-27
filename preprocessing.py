@@ -126,7 +126,7 @@ pipe = Pipeline([
 
 pipe_smote = ImbPipeline([
     ('fe',  fe),
-    ('smote', SMOTE(sampling_strategy='auto', random_state=42)),
+    ('smote', SMOTENC(categorical_features=cat_idx, sampling_strategy='auto', random_state=42)),
     ('pre', pre),
 ])
 
@@ -160,44 +160,35 @@ test_out.to_csv("data/interim/twitter_test_processed.csv", index=False)
 
 
 #SMOTE
+X_fe = pipe_smote.named_steps['fe'].fit_transform(X_train_SMOTE)
 
-pipe_smote.fit(X_train_SMOTE, y_train_SMOTE)
+smote = pipe_smote.named_steps['smote']
+X_smote_fe, y_smote = smote.fit_resample(X_fe, y_train_SMOTE)
 
-X_train_proc = pipe.transform(X_train_SMOTE)
-X_test_proc  = pipe.transform(X_test_SMOTE)
+preproc = pipe_smote.named_steps['pre']
+X_smote_proc = preproc.fit_transform(X_smote_fe, y_smote)
+feat_names_smote = preproc.get_feature_names_out()
 
-feat_names = pipe.named_steps['pre'].get_feature_names_out()
+pd.DataFrame(X_smote_proc, columns=feat_names_smote)\
+  .assign(account_type=y_smote.values)\
+  .to_csv("data/interim/twitter_train_processed_SMOTE.csv", index=False)
 
-X_train_proc_df = pd.DataFrame(X_train_proc, columns=feat_names, index=X_train.index)
-X_test_proc_df  = pd.DataFrame(X_test_proc,  columns=feat_names, index=X_test.index)
-
-
-train_out = X_train_proc_df.assign(account_type=y_train.values)
-test_out  = X_test_proc_df.assign(account_type=y_test.values)
-
-
-train_out.to_csv("data/interim/twitter_train_processed_SMOTE.csv", index=False)
-test_out.to_csv("data/interim/twitter_test_processed_SMOTE.csv", index=False)
 
 #ADASYN
 
-pipe_adasyn.fit(X_train_ADASYN, y_train_ADASYN)
+X_fe = pipe_adasyn.named_steps['fe'].fit_transform(X_train_ADASYN)
 
-X_train_proc = pipe.transform(X_train_ADASYN)
-X_test_proc  = pipe.transform(X_test_ADASYN)
+adasyn = pipe_adasyn.named_steps['adasyn']
+X_adasyn_fe, y_adasyn = smote.fit_resample(X_fe, y_train_ADASYN)
 
-feat_names = pipe.named_steps['pre'].get_feature_names_out()
+preproc = pipe_adasyn.named_steps['pre']
+X_adasyn_proc = preproc.fit_transform(X_adasyn_fe, y_adasyn)
+feat_names_adasyn = preproc.get_feature_names_out()
 
-X_train_proc_df = pd.DataFrame(X_train_proc, columns=feat_names, index=X_train.index)
-X_test_proc_df  = pd.DataFrame(X_test_proc,  columns=feat_names, index=X_test.index)
+pd.DataFrame(X_adasyn_proc, columns=feat_names_adasyn)\
+  .assign(account_type=y_smote.values)\
+  .to_csv("data/interim/twitter_train_processed_ADASYN.csv", index=False)
 
-
-train_out = X_train_proc_df.assign(account_type=y_train.values)
-test_out  = X_test_proc_df.assign(account_type=y_test.values)
-
-
-train_out.to_csv("data/interim/twitter_train_processed_adasyn.csv", index=False)
-test_out.to_csv("data/interim/twitter_test_processed_adasyn.csv", index=False)
 
 
 
