@@ -8,7 +8,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import OneHotEncoder, StandardScaler, MinMaxScaler, RobustScaler, FunctionTransformer, PowerTransformer
 from sklearn.linear_model import LogisticRegression
 from imblearn.pipeline import Pipeline as ImbPipeline
-from imblearn.over_sampling import SMOTENC
+from imblearn.over_sampling import SMOTENC, ADASYN
 
 
 df = pd.read_csv('data/raw/twitter_human_bots_dataset.csv', index_col=0)
@@ -23,6 +23,12 @@ X_train, X_test, y_train, y_test = train_test_split(
 #2) Feature Engineering
 def add_features(X):
     X = X.copy()
+
+    # DROP unusable string/datetime columns early
+    drop_cols = ['created_at', 'id','lang', 'location', 'profile_background_image_url', 'profile_image_url', 'screen_name']
+    for col in drop_cols:
+        if col in X.columns:
+            X = X.drop(columns=col)
 
     # new features
     X['followers_friends_ratio'] = np.where(
@@ -50,12 +56,16 @@ def add_features(X):
     X['geo_enabled'] = X['geo_enabled'].map({True:1, False:0})
     X['verified'] = X['verified'].map({True:1, False:0})
     X['has_description'] = X['has_description'].map({True:1, False:0})
+    
+    #Now drop description
+    X = X.drop(columns='description')
 
     return X
 
 # fe = FunctionTransformer(add_features, validate=False, feature_names_out='one-to-one')
 fe = FunctionTransformer(add_features, validate=False)
 fe.set_output(transform="pandas")
+
 
 #3) Column Blocks (for transformation)
 num_cols_standard = ['favourites_count', 'statuses_count']
@@ -94,11 +104,28 @@ pre = ColumnTransformer(
     verbose_feature_names_out=False
 )
 
+X_train_fe = fe.fit_transform(X_train)
+cat_idx = [X_train_fe.columns.get_loc(c) for c in cat_cols]
+
 
 pipe = Pipeline([
     ('fe',  fe),
     ('pre', pre),
 ])
+
+pipe_smote = ImbPipeline([
+    ('fe',  fe),
+    ('smote', SMOTENC(categorical_features=cat_idx, sampling_strategy='auto', random_state=42)),
+    ('pre', pre),
+])
+
+
+pipe_adasyn = ImbPipeline([
+    ('fe',  fe),
+    ('adasyn', ADASYN(sampling_strategy='auto', random_state=42)),
+    ('pre', pre),
+])
+
 
 # Ingest CSV into interim folder
 
@@ -119,6 +146,44 @@ test_out  = X_test_proc_df.assign(account_type=y_test.values)
 
 train_out.to_csv("data/interim/twitter_train_processed.csv", index=False)
 test_out.to_csv("data/interim/twitter_test_processed.csv", index=False)
+
+pipe_smote.fit(X_train, y_train)
+
+X_train_proc = pipe.transform(X_train)
+X_test_proc  = pipe.transform(X_test)
+
+feat_names = pipe.named_steps['pre'].get_feature_names_out()
+
+X_train_proc_df = pd.DataFrame(X_train_proc, columns=feat_names, index=X_train.index)
+X_test_proc_df  = pd.DataFrame(X_test_proc,  columns=feat_names, index=X_test.index)
+
+
+train_out = X_train_proc_df.assign(account_type=y_train.values)
+test_out  = X_test_proc_df.assign(account_type=y_test.values)
+
+
+train_out.to_csv("data/interim/twitter_train_processed_SMOTE.csv", index=False)
+test_out.to_csv("data/interim/twitter_test_processed_SMOTE.csv", index=False)
+
+
+pipe_adasyn.fit(X_train, y_train)
+
+X_train_proc = pipe.transform(X_train)
+X_test_proc  = pipe.transform(X_test)
+
+feat_names = pipe.named_steps['pre'].get_feature_names_out()
+
+X_train_proc_df = pd.DataFrame(X_train_proc, columns=feat_names, index=X_train.index)
+X_test_proc_df  = pd.DataFrame(X_test_proc,  columns=feat_names, index=X_test.index)
+
+
+train_out = X_train_proc_df.assign(account_type=y_train.values)
+test_out  = X_test_proc_df.assign(account_type=y_test.values)
+
+
+train_out.to_csv("data/interim/twitter_train_processed_adasyn.csv", index=False)
+test_out.to_csv("data/interim/twitter_test_processed_adasyn.csv", index=False)
+
 
 
 # Or can just export the pipe 
