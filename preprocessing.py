@@ -8,7 +8,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import OneHotEncoder, StandardScaler, MinMaxScaler, RobustScaler, FunctionTransformer, PowerTransformer
 from sklearn.linear_model import LogisticRegression
 from imblearn.pipeline import Pipeline as ImbPipeline
-from imblearn.over_sampling import SMOTENC, ADASYN
+from imblearn.over_sampling import SMOTENC, ADASYN, SMOTE
 
 
 df = pd.read_csv('data/raw/twitter_human_bots_dataset.csv', index_col=0)
@@ -19,6 +19,17 @@ y = df['account_type'].map({'bot':1, 'human':0})
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, stratify=y, random_state=42
 )
+
+X_train_SMOTE = X_train.copy(deep=True)
+X_test_SMOTE = X_test.copy(deep=True)
+y_train_SMOTE = y_train.copy(deep=True)
+y_test_SMOTE = y_test.copy(deep=True)
+
+X_train_ADASYN = X_train.copy(deep=True)
+X_test_ADASYN = X_test.copy(deep=True)
+y_train_ADASYN = y_train.copy(deep=True)
+y_test_ADASYN = y_test.copy(deep=True)
+
 
 #2) Feature Engineering
 def add_features(X):
@@ -115,7 +126,7 @@ pipe = Pipeline([
 
 pipe_smote = ImbPipeline([
     ('fe',  fe),
-    ('smote', SMOTENC(categorical_features=cat_idx, sampling_strategy='auto', random_state=42)),
+    ('smote', SMOTE(sampling_strategy='auto', random_state=42)),
     ('pre', pre),
 ])
 
@@ -147,10 +158,13 @@ test_out  = X_test_proc_df.assign(account_type=y_test.values)
 train_out.to_csv("data/interim/twitter_train_processed.csv", index=False)
 test_out.to_csv("data/interim/twitter_test_processed.csv", index=False)
 
-pipe_smote.fit(X_train, y_train)
 
-X_train_proc = pipe.transform(X_train)
-X_test_proc  = pipe.transform(X_test)
+#SMOTE
+
+pipe_smote.fit(X_train_SMOTE, y_train_SMOTE)
+
+X_train_proc = pipe.transform(X_train_SMOTE)
+X_test_proc  = pipe.transform(X_test_SMOTE)
 
 feat_names = pipe.named_steps['pre'].get_feature_names_out()
 
@@ -165,11 +179,12 @@ test_out  = X_test_proc_df.assign(account_type=y_test.values)
 train_out.to_csv("data/interim/twitter_train_processed_SMOTE.csv", index=False)
 test_out.to_csv("data/interim/twitter_test_processed_SMOTE.csv", index=False)
 
+#ADASYN
 
-pipe_adasyn.fit(X_train, y_train)
+pipe_adasyn.fit(X_train_ADASYN, y_train_ADASYN)
 
-X_train_proc = pipe.transform(X_train)
-X_test_proc  = pipe.transform(X_test)
+X_train_proc = pipe.transform(X_train_ADASYN)
+X_test_proc  = pipe.transform(X_test_ADASYN)
 
 feat_names = pipe.named_steps['pre'].get_feature_names_out()
 
