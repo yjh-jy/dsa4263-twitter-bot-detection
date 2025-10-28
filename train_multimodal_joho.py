@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-multimodal_bot_detection.py
+train_multimodal_joho.py
 
 Experiments:
 1) Text-only (DistilRoBERTa)
