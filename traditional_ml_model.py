@@ -15,14 +15,14 @@ from sklearn.naive_bayes import GaussianNB
 from preprocessing import pipe
 import pandas as pd
 
+df_train = pd.read_csv('data/interim/twitter_train_processed.csv', index_col=0)
+df_test = pd.read_csv('data/interim/twitter_test_processed.csv', index_col=0)
 
-df = pd.read_csv('data/raw/twitter_human_bots_dataset.csv', index_col=0)
-X = df.drop(columns=['account_type', 'id'])
-y = df['account_type'].map({'bot':1, 'human':0})
+X_train = df_train.drop(columns=['account_type'])
+y_train = df_train['account_type']
 
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, stratify=y, random_state=42
-)
+X_test = df_test.drop(columns=['account_type'])
+y_test = df_test['account_type']
 
 cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
 scoring = "roc_auc"
@@ -31,7 +31,6 @@ scoring = "roc_auc"
 
 def make_pipe(estimator):
     return Pipeline([
-        ('preprocess', pipe),  
         ('clf', estimator)
     ])
 
@@ -62,14 +61,14 @@ models_and_grids = {
             "clf__var_smoothing": np.logspace(-12, -7, 6)
         }
     },
-    "SVM": {
-        "model": make_pipe(SVC()),
-        "param_grid": {
-            'clf__C': [0.1, 1, 1.0],
-            'clf__kernel': ['linear', 'rbf'],
-            'clf__gamma': ['scale', 'auto']
-        }
-    }
+    # "SVM": {
+    #     "model": make_pipe(SVC()),
+    #     "param_grid": {
+    #         'clf__C': [0.1, 1, 1.0],
+    #         'clf__kernel': ['linear', 'rbf'],
+    #         'clf__gamma': ['scale', 'auto']
+    #     }
+    # }
 }
 
 # Display Results
@@ -197,7 +196,6 @@ def shap_summary_for_model(fitted_model, X_train, X_test, model_name, max_bg=200
 
 
 results_summary = []
-
 for name, cfg in models_and_grids.items():
     print(f"\n>>> Tuning {name} ...")
     gs = GridSearchCV(

@@ -73,10 +73,8 @@ def add_features(X):
 
     return X
 
-# fe = FunctionTransformer(add_features, validate=False, feature_names_out='one-to-one')
 fe = FunctionTransformer(add_features, validate=False)
 fe.set_output(transform="pandas")
-
 
 #3) Column Blocks (for transformation)
 num_cols_standard = ['favourites_count', 'statuses_count']
@@ -144,6 +142,7 @@ pipe.fit(X_train, y_train)
 X_train_proc = pipe.transform(X_train)
 X_test_proc  = pipe.transform(X_test)
 
+
 feat_names = pipe.named_steps['pre'].get_feature_names_out()
 
 X_train_proc_df = pd.DataFrame(X_train_proc, columns=feat_names, index=X_train.index)
@@ -188,8 +187,6 @@ feat_names_adasyn = preproc.get_feature_names_out()
 pd.DataFrame(X_adasyn_proc, columns=feat_names_adasyn)\
   .assign(account_type=y_adasyn.values)\
   .to_csv("data/interim/twitter_train_processed_ADASYN.csv", index=False)
-
-
 
 
 # Or can just export the pipe 
