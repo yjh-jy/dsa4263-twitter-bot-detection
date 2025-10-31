@@ -21,13 +21,13 @@ X_train, X_test, y_train, y_test = train_test_split(
 )
 
 X_train_SMOTE = X_train.copy(deep=True)
-X_test_SMOTE = X_test.copy(deep=True)
 y_train_SMOTE = y_train.copy(deep=True)
+X_test_SMOTE = X_test.copy(deep=True)
 y_test_SMOTE = y_test.copy(deep=True)
 
 X_train_ADASYN = X_train.copy(deep=True)
-X_test_ADASYN = X_test.copy(deep=True)
 y_train_ADASYN = y_train.copy(deep=True)
+X_test_ADASYN = X_test.copy(deep=True)
 y_test_ADASYN = y_test.copy(deep=True)
 
 

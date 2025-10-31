@@ -14,6 +14,8 @@ from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis as QDA
 from sklearn.naive_bayes import GaussianNB
 import pandas as pd
 
+# Import standard train
+
 df_train = pd.read_csv('data/interim/twitter_train_processed.csv', index_col=0)
 df_test = pd.read_csv('data/interim/twitter_test_processed.csv', index_col=0)
 
@@ -23,11 +25,26 @@ y_train = df_train['account_type']
 X_test = df_test.drop(columns=['account_type'])
 y_test = df_test['account_type']
 
+# Import SMOTECV
+df_train_smote = pd.read_csv('data/interim/twitter_train_processed_SMOTE.csv', index_col=0)
+X_train_smote = df_train_smote.drop(columns=['account_type'])
+y_train_smote = df_train_smote['account_type']
+
+# Import ADASYN
+df_train_adasyn = pd.read_csv('data/interim/twitter_train_processed_adasyn.csv', index_col=0)
+X_train_adasyn = df_train_adasyn.drop(columns=['account_type'])
+y_train_adasyn = df_train_adasyn['account_type']
+
+#resampling datasets
+train_resamples = [(X_train,y_train), (X_train_smote,y_train_smote), (X_train_adasyn, y_train_adasyn)]
+label = ['original', 'smote', 'adasyn']
+# Cross-Validation Parameter
 cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+# Scoring Parameter
 scoring = "roc_auc"
 
-# Building The Pipelines
-
+# Building The Pipelines and models
 def make_pipe(estimator):
     return Pipeline([
         ('clf', estimator)
@@ -60,19 +77,19 @@ models_and_grids = {
             "clf__var_smoothing": np.logspace(-12, -7, 6)
         }
     },
-    # "SVM": {
-    #     "model": make_pipe(SVC()),
-    #     "param_grid": {
-    #         'clf__C': [0.1, 1, 1.0],
-    #         'clf__kernel': ['linear', 'rbf'],
-    #         'clf__gamma': ['scale', 'auto']
-    #     }
-    # }
+    "SVM": {
+        "model": make_pipe(SVC()),
+        "param_grid": {
+            'clf__C': [0.1, 1, 1.0],
+            'clf__kernel': ['linear', 'rbf'],
+            'clf__gamma': ['scale', 'auto']
+        }
+    }
 }
 
-# Display Results
+# Plot Confusion Matrix and AUC
 
-def evaluate_and_plot(fitted_model, X_test, y_test, title, threshold=0.5,):
+def evaluate_and_plot(fitted_model, X_test, y_test, title, label, threshold=0.5,):
 
     if hasattr(fitted_model, "predict_proba"):
         y_prob = fitted_model.predict_proba(X_test)[:, 1]
@@ -89,17 +106,17 @@ def evaluate_and_plot(fitted_model, X_test, y_test, title, threshold=0.5,):
     #Confusion Matrix
     cm = confusion_matrix(y_test, y_pred)
     disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=["Human (0)", "Bot (1)"]).plot(ax=ax[0], cmap="Blues", colorbar=False)
-    ax[0].set_title("Confusion Matrix")
+    ax[0].set_title(f"Confusion Matrix {title}_{label}")
 
     #ROC Curve
     fpr, tpr, _ = roc_curve(y_test, y_prob)
     auc = roc_auc_score(y_test, y_prob)
     RocCurveDisplay(fpr=fpr, tpr=tpr, roc_auc=auc).plot(ax=ax[1])
-    ax[1].set_title(f"ROC Curve (AUC = {auc:.3f})")
+    ax[1].set_title(f"ROC Curve (AUC = {auc:.3f}) {title}_{label}")
 
     # Precicision Recall Curve
     PrecisionRecallDisplay.from_predictions(y_test, y_prob, ax=ax[2])
-    ax[2].set_title("Precision–Recall Curve")
+    ax[2].set_title(f"Precision–Recall Curve {title}_{label}")
 
     tn, fp, fn, tp = cm.ravel()
     specificity = tn / (tn + fp)
@@ -118,7 +135,7 @@ def evaluate_and_plot(fitted_model, X_test, y_test, title, threshold=0.5,):
     plt.show()
     return auc
 
-
+# Plot SHAP
 def shap_summary_for_model(fitted_model, X_train, X_test, model_name, max_bg=200, max_test=300, random_state=42):
     """
     SHAP on a fitted sklearn Pipeline:
@@ -178,37 +195,45 @@ def shap_summary_for_model(fitted_model, X_train, X_test, model_name, max_bg=200
     plt.show()
 
 
-results_summary = []
-for name, cfg in models_and_grids.items():
-    print(f"\n>>> Tuning {name} ...")
-    gs = GridSearchCV(
-        estimator=cfg["model"],
-        param_grid=cfg["param_grid"],
-        scoring=scoring,
-        cv=cv,
-        n_jobs=-1,
-        refit=True,
-        verbose=0
-    )
-    gs.fit(X_train, y_train)
+# Main Code
 
-    print(f"{name} best params: {gs.best_params_}")
-    print(f"{name} CV best {scoring}: {gs.best_score_:.4f}")
+def main():
+    results_summary = []
+    for i in range(len(train_resamples)):
+        X_train, y_train = train_resamples[i][0], train_resamples[i][1]
+        label_name = label[i]
+        for name, cfg in models_and_grids.items():
+            print(f"\n>>> Tuning {name} ...")
+            gs = GridSearchCV(
+                estimator=cfg["model"],
+                param_grid=cfg["param_grid"],
+                scoring=scoring,
+                cv=cv,
+                n_jobs=-1,
+                refit=True,
+                verbose=0
+            )
+            gs.fit(X_train, y_train)
 
-    # Evaluate on holdout
-    auc_test = evaluate_and_plot(gs.best_estimator_, X_test, y_test, name, threshold=0.5)
+            print(f"{name}_{label_name} best params: {gs.best_params_}")
+            print(f"{name}_{label_name} CV best {scoring}: {gs.best_score_:.4f}")
 
-    # Calculate SHAP
-    shap_summary_for_model(gs.best_estimator_, X_train, X_test, name)
+            # Evaluate on holdout
+            auc_test = evaluate_and_plot(gs.best_estimator_, X_test, y_test, name, label_name, threshold=0.5)
 
-    results_summary.append({
-        "Model": name,
-        "CV_AUC": gs.best_score_,
-        "Test_AUC": auc_test,
-        "Best_Params": gs.best_params_
-    })
+            # Calculate SHAP
+            shap_summary_for_model(gs.best_estimator_, X_train, X_test, name)
 
-summary_df = pd.DataFrame(results_summary).sort_values("Test_AUC", ascending=False)
-print("\n=== Model Comparison (sorted by Test AUC) ===")
-print(summary_df.to_string(index=False))
+            results_summary.append({
+                "Model": name,
+                "CV_AUC": gs.best_score_,
+                "Test_AUC": auc_test,
+                "Best_Params": gs.best_params_
+            })
 
+    summary_df = pd.DataFrame(results_summary).sort_values("Test_AUC", ascending=False)
+    print("\n=== Model Comparison (sorted by Test AUC) ===")
+    print(summary_df.to_string(index=False))
+
+
+main()
