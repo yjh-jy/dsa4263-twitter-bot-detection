@@ -12,17 +12,16 @@ from sklearn.svm import SVC
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
 from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis as QDA
 from sklearn.naive_bayes import GaussianNB
-from preprocessing import pipe
 import pandas as pd
 
+df_train = pd.read_csv('data/interim/twitter_train_processed.csv', index_col=0)
+df_test = pd.read_csv('data/interim/twitter_test_processed.csv', index_col=0)
 
-df = pd.read_csv('data/raw/twitter_human_bots_dataset.csv', index_col=0)
-X = df.drop(columns=['account_type', 'id'])
-y = df['account_type'].map({'bot':1, 'human':0})
+X_train = df_train.drop(columns=['account_type'])
+y_train = df_train['account_type']
 
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, stratify=y, random_state=42
-)
+X_test = df_test.drop(columns=['account_type'])
+y_test = df_test['account_type']
 
 cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
 scoring = "roc_auc"
@@ -31,7 +30,6 @@ scoring = "roc_auc"
 
 def make_pipe(estimator):
     return Pipeline([
-        ('preprocess', pipe),  
         ('clf', estimator)
     ])
 
@@ -62,14 +60,14 @@ models_and_grids = {
             "clf__var_smoothing": np.logspace(-12, -7, 6)
         }
     },
-    "SVM": {
-        "model": make_pipe(SVC()),
-        "param_grid": {
-            'clf__C': [0.1, 1, 1.0],
-            'clf__kernel': ['linear', 'rbf'],
-            'clf__gamma': ['scale', 'auto']
-        }
-    }
+    # "SVM": {
+    #     "model": make_pipe(SVC()),
+    #     "param_grid": {
+    #         'clf__C': [0.1, 1, 1.0],
+    #         'clf__kernel': ['linear', 'rbf'],
+    #         'clf__gamma': ['scale', 'auto']
+    #     }
+    # }
 }
 
 # Display Results
@@ -130,31 +128,15 @@ def shap_summary_for_model(fitted_model, X_train, X_test, model_name, max_bg=200
     Produces a beeswarm + bar plot. Keeps runtime light via sampling.
     """
     # 1) Get steps
-    if "preprocess" not in fitted_model.named_steps or "clf" not in fitted_model.named_steps:
+    if "clf" not in fitted_model.named_steps:
         print(f"[SHAP] Skipping {model_name}: pipeline must have 'preprocess' and 'clf' steps.")
         return
-    preprocessor = fitted_model.named_steps["preprocess"]
     clf = fitted_model.named_steps["clf"]
 
-    # 2) Transform X to numeric (dense DataFrames with feature names)
-    def _to_dense_df(X_raw):
-        Xt = preprocessor.transform(X_raw)
-        # Sparse -> dense if needed
-        if hasattr(Xt, "toarray"):
-            Xt = Xt.toarray()
-        # Try to get feature names; otherwise fall back to generic
-        try:
-            cols = preprocessor.get_feature_names_out()
-        except Exception:
-            cols = [f"f{i}" for i in range(np.asarray(Xt).shape[1])]
-        return pd.DataFrame(Xt, columns=cols)
-
-    X_train_t = _to_dense_df(X_train)
-    X_test_t  = _to_dense_df(X_test)
 
     # 3) Light background + display slices (keep fast)
-    bg = shap.sample(X_train_t, min(max_bg, len(X_train_t)), random_state=random_state)
-    X_disp = shap.sample(X_test_t, min(max_test, len(X_test_t)), random_state=random_state)
+    bg = shap.sample(X_train, min(max_bg, len(X_train)), random_state=random_state)
+    X_disp = shap.sample(X_test, min(max_test, len(X_test)), random_state=random_state)
 
     # 4) Prediction function on the *classifier* (post-preprocessing data)
     if hasattr(clf, "predict_proba"):
@@ -197,7 +179,6 @@ def shap_summary_for_model(fitted_model, X_train, X_test, model_name, max_bg=200
 
 
 results_summary = []
-
 for name, cfg in models_and_grids.items():
     print(f"\n>>> Tuning {name} ...")
     gs = GridSearchCV(
