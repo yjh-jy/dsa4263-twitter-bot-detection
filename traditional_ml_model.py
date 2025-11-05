@@ -1,6 +1,9 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import shap
+from scipy.stats import chi2
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import StratifiedKFold, GridSearchCV, train_test_split
 from sklearn.metrics import (
@@ -13,6 +16,48 @@ from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
 from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis as QDA
 from sklearn.naive_bayes import GaussianNB
 import pandas as pd
+
+
+def box_m_test(X, y):
+    """
+    Box's M test for equality of covariance matrices across classes.
+    Returns: dict with M, df, pval, details per class.
+    """
+    X = np.asarray(X, dtype=float)
+    y = np.asarray(y)
+    classes = np.unique(y)
+    p = X.shape[1]
+    n_k = []
+    S_k = []
+    for c in classes:
+        Xc = X[y == c]
+        n_k.append(len(Xc))
+        # sample covariance with (n-1) denom
+        S_k.append(np.cov(Xc, rowvar=False, ddof=1))
+    n_k = np.array(n_k)
+    N = n_k.sum()
+    # pooled covariance
+    Sp = sum((n_k[i]-1) * S_k[i] for i in range(len(classes))) / (N - len(classes))
+    # core statistic
+    term = 0.0
+    for i in range(len(classes)):
+        term += (n_k[i]-1) * np.log(np.linalg.det(S_k[i]) + 1e-12)
+    M = (N - len(classes)) * np.log(np.linalg.det(Sp) + 1e-12) - term
+
+    # small-sample correction (as per Box, 1949)
+    c = ( (2*p**2 + 3*p - 1) / (6*(p+1)*(len(classes)-1)) ) * \
+        ( sum(1/(n_k[i]-1) for i in range(len(classes))) - 1/(N - len(classes)) )
+    M_adj = M * (1 - c)
+    df = (len(classes)-1) * p*(p+1)//2
+    pval = 1 - chi2.cdf(M_adj, df)
+
+    return {
+        "M": float(M_adj),
+        "df": int(df),
+        "pval": float(pval),
+        "classes": classes.tolist(),
+        "n_per_class": n_k.tolist()
+    }
 
 # Import standard train
 
@@ -51,40 +96,40 @@ def make_pipe(estimator):
     ])
 
 models_and_grids = {
-    "LogReg": {
-        "model": make_pipe(LogisticRegression(max_iter=3000, class_weight='balanced', solver='saga', n_jobs=None)),
-        "param_grid": {
-            "clf__penalty": ["l1", "l2"],
-            "clf__C": [0.01, 0.1, 1, 10, 100]
-        }
-    },
-    "LDA": {
-        # shrinkage works with solver='lsqr' or 'eigen'
-        "model": make_pipe(LDA(solver='lsqr')),
-        "param_grid": {
-            "clf__shrinkage": [None, 'auto']  # None ~ no shrinkage; 'auto' ~ Ledoit-Wolf
-        }
-    },
+    # "LogReg": {
+    #     "model": make_pipe(LogisticRegression(max_iter=3000, class_weight='balanced', solver='saga', n_jobs=None)),
+    #     "param_grid": {
+    #         "clf__penalty": ["l1", "l2"],
+    #         "clf__C": [0.01, 0.1, 1, 10, 100]
+    #     }
+    # },
+    # "LDA": {
+    #     # shrinkage works with solver='lsqr' or 'eigen'
+    #     "model": make_pipe(LDA(solver='lsqr')),
+    #     "param_grid": {
+    #         "clf__shrinkage": [None, 'auto']  # None ~ no shrinkage; 'auto' ~ Ledoit-Wolf
+    #     }
+    # },
     "QDA": {
         "model": make_pipe(QDA()),
         "param_grid": {
             "clf__reg_param": [0.0, 1e-3, 1e-2, 0.1, 0.5]
         }
     },
-    "GaussianNB": {
-        "model": make_pipe(GaussianNB()),
-        "param_grid": {
-            "clf__var_smoothing": np.logspace(-12, -7, 6)
-        }
-    },
-    "SVM": {
-        "model": make_pipe(SVC()),
-        "param_grid": {
-            'clf__C': [0.1, 1, 1.0],
-            'clf__kernel': ['linear', 'rbf'],
-            'clf__gamma': ['scale', 'auto']
-        }
-    }
+    # "GaussianNB": {
+    #     "model": make_pipe(GaussianNB()),
+    #     "param_grid": {
+    #         "clf__var_smoothing": np.logspace(-12, -7, 6)
+    #     }
+    # },
+    # "SVM": {
+    #     "model": make_pipe(SVC()),
+    #     "param_grid": {
+    #         'clf__C': [0.1, 1, 1.0],
+    #         'clf__kernel': ['linear', 'rbf'],
+    #         'clf__gamma': ['scale', 'auto']
+    #     }
+    # }
 }
 
 # Plot Confusion Matrix and AUC
@@ -202,6 +247,12 @@ def main():
     for i in range(len(train_resamples)):
         X_train, y_train = train_resamples[i][0], train_resamples[i][1]
         label_name = label[i]
+
+
+        print(f"\n=== Covariance Diagnostics — {label_name} ===")
+        bm = box_m_test(X_train, y_train)
+        print(f"Box's M (adj): {bm['M']:.3f} | df={bm['df']} | p-value={bm['pval']:.4g} | n per class={bm['n_per_class']}")
+
         for name, cfg in models_and_grids.items():
             print(f"\n>>> Tuning {name} ...")
             gs = GridSearchCV(
