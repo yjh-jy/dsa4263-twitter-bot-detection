@@ -13,11 +13,14 @@ from imblearn.over_sampling import SMOTENC, ADASYN, SMOTE
 
 df = pd.read_csv('data/raw/twitter_human_bots_dataset.csv', index_col=0)
 
-#1) Train_Test_Split
+#1) Train_Test_Split (80:10:10 train-val-test split)
 X = df.drop(columns=['account_type', 'id'])
 y = df['account_type'].map({'bot':1, 'human':0})
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, stratify=y, random_state=42
+
+X_temp, X_test, y_temp, y_test = train_test_split(X,y, test_size=0.1, stratify=y, random_state=42)
+
+X_train, X_val, y_train, y_val = train_test_split(
+    X_temp, y_temp, test_size=0.111, stratify=y_temp, random_state=42
 )
 
 X_train_SMOTE = X_train.copy(deep=True)
@@ -137,23 +140,25 @@ pipe_adasyn = ImbPipeline([
 
 # Ingest CSV into interim folder
 
+# Original
 pipe.fit(X_train, y_train)
-
-X_train_proc = pipe.transform(X_train)
-X_test_proc  = pipe.transform(X_test)
-
-
 feat_names = pipe.named_steps['pre'].get_feature_names_out()
 
+X_train_proc = pipe.transform(X_train)
+X_val_proc = pipe.transform(X_val)
+X_test_proc  = pipe.transform(X_test)
+
 X_train_proc_df = pd.DataFrame(X_train_proc, columns=feat_names, index=X_train.index)
+X_val_proc_df = pd.DataFrame(X_val_proc, columns=feat_names, index=X_val.index)
 X_test_proc_df  = pd.DataFrame(X_test_proc,  columns=feat_names, index=X_test.index)
 
-
 train_out = X_train_proc_df.assign(account_type=y_train.values)
+val_out = X_val_proc_df.assign(account_type = y_val.values)
 test_out  = X_test_proc_df.assign(account_type=y_test.values)
 
 
 train_out.to_csv("data/interim/twitter_train_processed.csv", index=False)
+val_out.to_csv("data/interim/twitter_val_processed.csv", index=False)
 test_out.to_csv("data/interim/twitter_test_processed.csv", index=False)
 
 
