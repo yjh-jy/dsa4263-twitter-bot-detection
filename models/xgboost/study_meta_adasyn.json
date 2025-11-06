@@ -1,0 +1,13 @@
+{
+  "best_params": {
+    "n_estimators": 457,
+    "learning_rate": 0.13153566232588135,
+    "max_depth": 7,
+    "subsample": 0.8493004761303558,
+    "colsample_bytree": 0.8351461195649289,
+    "scale_pos_weight": 1.7536147527935944,
+    "feature_fraction": 0.835016904764989
+  },
+  "best_value": 0.9845270362246825,
+  "study_name": "xgb_adasyn"
+}
