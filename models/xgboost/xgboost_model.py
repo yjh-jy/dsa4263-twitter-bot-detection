@@ -1,17 +1,18 @@
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import shap
 import optuna
 import joblib
 import json
+import sys
 
 from pathlib import Path
 from sklearn.model_selection import train_test_split, StratifiedKFold
 from sklearn.metrics import recall_score
 from sklearn.feature_selection import RFE
 from xgboost import XGBClassifier
-from sklearn.metrics import roc_auc_score, average_precision_score, precision_score, recall_score, f1_score, roc_curve, precision_recall_curve, ConfusionMatrixDisplay
+from sklearn.metrics import average_precision_score, precision_score, recall_score, precision_recall_curve
+sys.path.append(str(Path(__file__).resolve().parents[2]))
+from visualize import evaluate_and_plot, shap_summary_for_model_xgboost
 
 folder = Path(__file__).parent
 folder.mkdir(parents=True, exist_ok=True)
@@ -47,56 +48,6 @@ def save_artifacts_joblib(name, study, final_model, best_cols):
     }
     with open(p["meta"], "w") as f:
         json.dump(meta, f, indent=2)
-
-def evaluate(model, X, y, label):
-    y_pred = model.predict(X)
-    y_prob = model.predict_proba(X)[:, 1]
-
-    auc = roc_auc_score(y, y_prob)
-    pr_auc = average_precision_score(y, y_prob)
-    precision = precision_score(y, y_pred)
-    recall = recall_score(y, y_pred)
-    f1 = f1_score(y, y_pred)
-
-    print(f"\n{label} metrics")
-    print(f"AUC: {auc:.4f}")
-    print(f"PR-AUC: {pr_auc:.4f}")
-    print(f"Precision: {precision:.4f}")
-    print(f"Recall: {recall:.4f}")
-    print(f"F1-score: {f1:.4f}")
-
-    # Confusion matrix
-    disp = ConfusionMatrixDisplay.from_estimator(model, X, y, display_labels=["Human (0)", "Bot (1)"], cmap="Blues", colorbar=False)
-    disp.ax_.set_title("Confusion Matrix")
-    disp.ax_.set_xlabel("Predicted label")
-    disp.ax_.set_ylabel("True label")
-    plt.tight_layout()    
-    plt.savefig(f"models/xgboost/{label.lower().replace(' ', '_')}_confusion_matrix.png")
-    plt.close()
-
-    # ROC curve
-    fpr, tpr, _ = roc_curve(y, y_prob)
-    plt.plot(fpr, tpr, label=f"AUC = {auc:.3f}")
-    plt.title(f"ROC Curve (AUC = {auc:.3f})")
-    plt.xlabel("False Positive Rate")
-    plt.ylabel("True Positive Rate")
-    plt.legend(loc="lower right")
-    plt.tight_layout()       
-    plt.savefig(f"models/xgboost/{label.lower().replace(' ', '_')}_roc_curve.png")
-    plt.close()
-
-    # Precision-Recall curve
-    prec, rec, _ = precision_recall_curve(y, y_prob)
-    plt.plot(rec, prec, label=f"Classifier (AP = {pr_auc:.3f})")
-    plt.title(f"Precision-Recall Curve")
-    plt.xlabel("Recall (Positive label: 1)")
-    plt.ylabel("Precision (Positive label: 1)")
-    plt.legend(loc="lower left")
-    plt.tight_layout()
-    plt.savefig(f"models/xgboost/{label.lower().replace(' ', '_')}_pr_curve.png")
-    plt.close()    
-
-    return auc, pr_auc, precision, recall, f1
 
 def make_objective(x, y, seed, min_precision=0.7, n_splits=5):
     def objective(trial):
@@ -211,10 +162,11 @@ for name, (x, y) in datasets.items():
     model_saved, cols_saved, meta_saved = load_artifacts_joblib(name)
     if model_saved is not None and not force_retrain:
         print(f"\nLoaded saved artifacts for {name}: best_value={meta_saved.get('best_value')}")
-        studies[name] = None  # no study object available (unless you saved it)
+        studies[name] = None 
         models[name] = model_saved
         best_features[name] = cols_saved
-        metrics[name] = evaluate(model_saved, X_test.loc[:, cols_saved], y_test, label=f"{name}")
+        metrics[name] = evaluate_and_plot(model_saved, X_test.loc[:, cols_saved], y_test, title="XGBoost", label=name, threshold=0.5)
+
         continue  # skip tuning/refit for this dataset
 
     study = optuna.create_study(direction="maximize", study_name=f"xgb_{name}")
@@ -243,7 +195,7 @@ for name, (x, y) in datasets.items():
     rfe_full.fit(x, y)
     best_cols = x.columns[rfe_full.support_].tolist()
     best_features[name] = best_cols
-    print(f"\nRefit {len(best_cols)} selected features for {name}")
+    print(f"Refit {len(best_cols)} selected features for {name}")
 
     # Train final model on these features
     final_model = XGBClassifier(
@@ -260,14 +212,14 @@ for name, (x, y) in datasets.items():
     models[name] = final_model
 
     # Evaluate on test set
-    metrics[name] = evaluate(final_model, X_test.loc[:, best_cols], y_test, label=f"{name}")
-    print(f"\nMetrics ({name}):", metrics[name])
+    metrics[name] = evaluate_and_plot(final_model, X_test.loc[:, best_cols], y_test, title="XGBoost", label=name, threshold=0.5)
 
     # Save artifacts (model, features, meta)
     save_artifacts_joblib(name, study, final_model, best_cols)
 
 # Compare test recall and PR-AUC
 results = {}
+print("")
 for name, model in models.items():
     cols = best_features[name]
     X_test_sub = X_test.loc[:, cols]
@@ -275,62 +227,24 @@ for name, model in models.items():
     # Get positive-class probabilities
     y_prob = model.predict_proba(X_test_sub)[:, 1]
 
+    # Convert probabilities to binary predictions
     y_pred = (y_prob >= 0.5).astype(int)
+
     rec = recall_score(y_test, y_pred, zero_division=0)
+    prec = precision_score(y_test, y_pred, zero_division=0)
     pr_auc = average_precision_score(y_test, y_prob)
 
     results[name] = {"recall": rec, "pr_auc": pr_auc, "y_prob": y_prob}
-    print(f"\n{name:8s}: recall={rec:.4f}, PR-AUC={pr_auc:.4f}, n_features={len(cols)}")
+    print(f"{name}: recall={rec:.4f}, PR-AUC={pr_auc:.4f}, precision={prec:.4f}, n_features={len(cols)}")
 
 # Create sorted list by (recall, pr_auc) descending
 rows = [(n, v["recall"], v["pr_auc"]) for n, v in results.items()]
 rows_sorted = sorted(rows, key=lambda x: (x[1], x[2]), reverse=True)
 best_name, best_recall, best_pr_auc = rows_sorted[0]
-print(f"\nSelected best dataset: {best_name} (recall={best_recall:.4f}, PR-AUC={best_pr_auc:.4f})")
+print(f"\nSelected best dataset: {best_name} (recall={best_recall:.4f}, PR-AUC={best_pr_auc:.4f}, precision={prec:.4f})")
 
 best_model = models[best_name]
 best_cols = best_features[best_name]
 X_test_sub = X_test.loc[:, best_cols]
 
-# SHAP
-explainer = shap.Explainer(best_model.predict_proba, X_test_sub)
-shap_values = explainer(X_test_sub)
-vals = np.asarray(shap_values.values)[:, :, 1]
-global_importance = np.abs(vals).mean(axis=0)
-shap_df = pd.DataFrame({"feature": X_test_sub.columns, "mean_abs_shap": global_importance}).sort_values(by="mean_abs_shap", ascending=False)
-
-# SHAP for bots
-target = 1
-
-y_test_arr = np.asarray(y_test).ravel()
-mask = (y_test_arr == target)
-
-# Extract class-specific SHAP
-vals_local = np.asarray(shap_values.values)
-shap_vals_subset = vals_local[mask, :, 1]
-mean_abs_subset = np.abs(shap_vals_subset).mean(axis=0)
-X_test_subset = X_test_sub.iloc[mask].reset_index(drop=True)
-feature_df_subset = pd.DataFrame({"feature": X_test_sub.columns, "mean_abs_shap_subset": mean_abs_subset}).sort_values("mean_abs_shap_subset", ascending=False)
-top_subset = feature_df_subset.head(10)
-print("\nTop 10 features for bots:")
-print(top_subset)
-
-# Beeswarm
-plt.figure(figsize=(9, 6))
-shap.summary_plot(shap_vals_subset, X_test_subset, plot_type="dot", max_display=10, show=False)
-plt.title(f"SHAP Beeswarm - XGBoost")
-plt.tight_layout()
-plt.savefig(f"models/xgboost/shap_beeswarm_{best_name}.png")
-plt.close()
-
-# Bar plot
-plt.figure(figsize=(8, 6))
-bars = plt.barh(top_subset["feature"][::-1], top_subset["mean_abs_shap_subset"][::-1])
-for bar in bars:
-    width = bar.get_width()
-    plt.text(width + 1e-6, bar.get_y() + bar.get_height() / 2, f"{width:.3f}", va="center")
-plt.xlabel("Mean |SHAP value| (subset)")
-plt.title(f"SHAP Top Features - XGBoost")
-plt.tight_layout()
-plt.savefig(f"models/xgboost/shap_{best_name}.png")
-plt.close()
+shap_summary_for_model_xgboost(best_model, X_test_sub, y_test)
