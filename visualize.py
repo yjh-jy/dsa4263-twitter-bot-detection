@@ -1,15 +1,17 @@
 import matplotlib.pyplot as plt
 from sklearn.metrics import (
-    roc_curve, roc_auc_score, confusion_matrix, ConfusionMatrixDisplay,
-    RocCurveDisplay, PrecisionRecallDisplay, precision_score, recall_score, f1_score, accuracy_score
+    roc_curve, roc_auc_score, confusion_matrix, ConfusionMatrixDisplay, RocCurveDisplay, PrecisionRecallDisplay,
+    precision_score, recall_score, f1_score, accuracy_score, average_precision_score
 )
 import shap
-
+import numpy as np
+import pandas as pd
+from pathlib import Path
 
 
 # Plot Confusion Matrix and AUC
 
-def evaluate_and_plot(fitted_model, X_test, y_test, title, label, threshold=0.5,):
+def evaluate_and_plot(fitted_model, X_test, y_test, title, label, threshold=0.5):
 
     if hasattr(fitted_model, "predict_proba"):
         y_prob = fitted_model.predict_proba(X_test)[:, 1]
@@ -31,6 +33,7 @@ def evaluate_and_plot(fitted_model, X_test, y_test, title, label, threshold=0.5,
     #ROC Curve
     fpr, tpr, _ = roc_curve(y_test, y_prob)
     auc = roc_auc_score(y_test, y_prob)
+    pr_auc = average_precision_score(y_test, y_prob)
     RocCurveDisplay(fpr=fpr, tpr=tpr, roc_auc=auc).plot(ax=ax[1])
     ax[1].set_title(f"ROC Curve (AUC = {auc:.3f}) {title}_{label}")
 
@@ -45,12 +48,13 @@ def evaluate_and_plot(fitted_model, X_test, y_test, title, label, threshold=0.5,
     f1 = f1_score(y_test, y_pred)
     accuracy = accuracy_score(y_test, y_pred)
 
-    print(f"Accuracy: {accuracy:.3f}")
-    print(f"Precision: {precision:.3f}")
-    print(f"Sensitivity (Recall): {sensitivity:.3f}")
-    print(f"Specificity: {specificity:.3f}")
-    print(f"F1-score: {f1:.3f}")
-    print(f"AUC: {auc:.3f}")
+    print(f"Accuracy: {accuracy:.4f}")
+    print(f"Precision: {precision:.4f}")
+    print(f"Sensitivity (Recall): {sensitivity:.4f}")
+    print(f"Specificity: {specificity:.4f}")
+    print(f"F1-score: {f1:.4f}")
+    print(f"AUC: {auc:.4f}")
+    print(f"PR-AUC: {pr_auc:.4f}")
     plt.tight_layout()
     plt.show()
     return auc
@@ -64,6 +68,11 @@ def shap_summary_for_model(fitted_model, X_train, X_test, model_name, max_bg=200
       - Works whether the clf exposes predict_proba or decision_function
     Produces a beeswarm + bar plot. Keeps runtime light via sampling.
     """
+
+    model = model_name.lower()
+    folder = Path(f"reports/{model}")
+    folder.mkdir(parents=True, exist_ok=True)
+
     # 1) Get steps
     if "clf" not in fitted_model.named_steps:
         print(f"[SHAP] Skipping {model_name}: pipeline must have 'preprocess' and 'clf' steps.")
@@ -106,10 +115,48 @@ def shap_summary_for_model(fitted_model, X_train, X_test, model_name, max_bg=200
     shap.plots.beeswarm(sv_pos, show=False, max_display=20)
     plt.title(f"SHAP Beeswarm — {model_name}" + (" (class=1)" if class_index == 1 else ""))
     plt.tight_layout()
-    plt.show()
+    plt.savefig(f"reports/{model}/{model}_shap_beeswarm.png")
+    plt.close()
 
     plt.figure(figsize=(8, 5))
     shap.plots.bar(sv_pos, show=False, max_display=15)
     plt.title(f"SHAP Top Features — {model_name}" + (" (class=1)" if class_index == 1 else ""))
     plt.tight_layout()
-    plt.show()
+    plt.savefig(f"reports/{model}/{model}_shap_barplot.png")
+    plt.close()
+
+def shap_summary_for_model_xgboost(fitted_model, X_test, y_test, model_name = "XGBoost"):
+    model = model_name.lower()
+    folder = Path(f"reports/{model}")
+    folder.mkdir(parents=True, exist_ok=True)
+
+    explainer = shap.Explainer(fitted_model.predict_proba, X_test)
+    shap_values = explainer(X_test)
+    y_test_arr = np.asarray(y_test).ravel()
+    mask = (y_test_arr == 1)
+
+    # Extract class-specific SHAP
+    vals_local = np.asarray(shap_values.values)
+    shap_vals_subset = vals_local[mask, :, 1]
+    mean_abs_subset = np.abs(shap_vals_subset).mean(axis=0)
+    X_test_subset = X_test.iloc[mask].reset_index(drop=True)
+    feature_df_subset = pd.DataFrame({"feature": X_test.columns, "mean_abs_shap_subset": mean_abs_subset}).sort_values("mean_abs_shap_subset", ascending=False)
+    
+    # Beeswarm
+    plt.figure(figsize=(8, 5))
+    shap.summary_plot(shap_vals_subset, X_test_subset, plot_type="dot", max_display=20, show=False)
+    plt.title(f"SHAP Beeswarm — {model_name}" + (" (class=1)"))
+    plt.tight_layout()
+    plt.savefig(f"reports/{model}/{model}_shap_beeswarm.png")
+    plt.close()
+
+    # Barplot
+    plt.figure(figsize=(8, 5))
+    bars = plt.barh(feature_df_subset["feature"][::-1], feature_df_subset["mean_abs_shap_subset"][::-1])
+    for bar in bars:
+        width = bar.get_width()
+        plt.text(width + 1e-6, bar.get_y() + bar.get_height() / 2, f"{width:.3f}", va="center")
+    plt.title(f"SHAP Top Features — {model_name}" + (" (class=1)"))
+    plt.tight_layout()
+    plt.savefig(f"reports/{model}/{model}_shap_barplot.png")
+    plt.close()

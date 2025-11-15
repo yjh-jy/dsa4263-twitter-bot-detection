@@ -1,0 +1,13 @@
+{
+  "best_params": {
+    "n_estimators": 497,
+    "learning_rate": 0.06745426484909853,
+    "max_depth": 7,
+    "subsample": 0.7074477203671484,
+    "colsample_bytree": 0.8182404622558697,
+    "scale_pos_weight": 2.875767060704493,
+    "feature_fraction": 0.8989707287289287
+  },
+  "best_value": 0.978870850496729,
+  "study_name": "xgb_smote"
+}
