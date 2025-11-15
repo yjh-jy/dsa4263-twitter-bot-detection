@@ -1,5 +1,17 @@
-import sys
-import os
+import sys, os
+import os, sys
+
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(CURRENT_DIR, "..", ".."))
+
+if PROJECT_ROOT not in sys.path:
+    sys.path.append(PROJECT_ROOT)
+
+DATA_DIR = os.path.join(PROJECT_ROOT, "data", "interim")
+
+REPORTS_DIR = os.path.join(PROJECT_ROOT, "reports")
+os.makedirs(REPORTS_DIR, exist_ok=True)
+
 import matplotlib.pyplot as plt
 import numpy as np
 import shap
@@ -63,9 +75,9 @@ def box_m_test(X, y):
 
 # Import standard train
 
-df_train = pd.read_csv('data/interim/twitter_train_processed.csv', index_col=0)
-df_val = pd.read_csv('data/interim/twitter_train_processed.csv', index_col=0)
-df_test = pd.read_csv('data/interim/twitter_test_processed.csv', index_col=0)
+df_train = pd.read_csv(os.path.join(DATA_DIR, 'twitter_train_processed.csv'), index_col=0)
+df_val = pd.read_csv(os.path.join(DATA_DIR, 'twitter_val_processed.csv'), index_col=0)
+df_test = pd.read_csv(os.path.join(DATA_DIR, 'twitter_test_processed.csv'), index_col=0)
 
 X_train = df_train.drop(columns=['account_type'])
 y_train = df_train['account_type']
@@ -77,12 +89,12 @@ X_test = df_test.drop(columns=['account_type'])
 y_test = df_test['account_type']
 
 # Import SMOTECV
-df_train_smote = pd.read_csv('data/interim/twitter_train_processed_SMOTE.csv', index_col=0)
+df_train_smote = pd.read_csv(os.path.join(DATA_DIR, 'twitter_train_processed_SMOTE.csv'), index_col=0)
 X_train_smote = df_train_smote.drop(columns=['account_type'])
 y_train_smote = df_train_smote['account_type']
 
 # Import ADASYN
-df_train_adasyn = pd.read_csv('data/interim/twitter_train_processed_adasyn.csv', index_col=0)
+df_train_adasyn = pd.read_csv(os.path.join(DATA_DIR, 'twitter_train_processed_adasyn.csv'), index_col=0)
 X_train_adasyn = df_train_adasyn.drop(columns=['account_type'])
 y_train_adasyn = df_train_adasyn['account_type']
 
@@ -128,14 +140,14 @@ models_and_grids = {
             "clf__var_smoothing": np.logspace(-12, -7, 6)
         }
     },
-    "SVM": {
-        "model": make_pipe(SVC()),
-        "param_grid": {
-            'clf__C': [0.1, 1, 1.0],
-            'clf__kernel': ['linear', 'rbf'],
-            'clf__gamma': ['scale', 'auto']
-        }
-    }
+    # "SVM": {
+    #     "model": make_pipe(SVC()),
+    #     "param_grid": {
+    #         'clf__C': [0.1, 1, 1.0],
+    #         'clf__kernel': ['linear', 'rbf'],
+    #         'clf__gamma': ['scale', 'auto']
+    #     }
+    # }
 }
 
 # Main Code
@@ -181,7 +193,7 @@ def main():
             auc_test = evaluate_and_plot(gs.best_estimator_, X_test, y_test, name, label_name, threshold=0.5)
 
             # Calculate SHAP
-            shap_summary_for_model(gs.best_estimator_, X_train, X_test, name)
+            shap_summary_for_model(gs.best_estimator_, X_train, X_test, name, label_name)
 
             results_summary.append({
                 "Model": name,
