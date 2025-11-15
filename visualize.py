@@ -1,3 +1,5 @@
+import os
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 import matplotlib.pyplot as plt
 from sklearn.metrics import (
     roc_curve, roc_auc_score, confusion_matrix, ConfusionMatrixDisplay, RocCurveDisplay, PrecisionRecallDisplay,
@@ -14,9 +16,8 @@ from pathlib import Path
 def evaluate_and_plot(fitted_model, X_test, y_test, model_name, dataset_name, threshold=0.5):
     model = model_name.lower()
     dataset = dataset_name.lower()
-    folder = Path(f"reports/{model}")
+    folder = Path(os.path.join(CURRENT_DIR, "reports", model))
     folder.mkdir(parents=True, exist_ok=True)
-
 
     if hasattr(fitted_model, "predict_proba"):
         y_prob = fitted_model.predict_proba(X_test)[:, 1]
@@ -61,11 +62,11 @@ def evaluate_and_plot(fitted_model, X_test, y_test, model_name, dataset_name, th
     print(f"AUC: {auc:.4f}")
     print(f"PR-AUC: {pr_auc:.4f}")
     plt.tight_layout()
-    fig.savefig(f"reports/{model}/{dataset}_confusion_auc_barplot.png")
+    fig.savefig(f"reports/{model}/{model}_{dataset}_confusion_auc_barplot.png")
     return auc
 
 # Plot SHAP
-def shap_summary_for_model(fitted_model, X_train, X_test, model_name, max_bg=200, max_test=300, random_state=42):
+def shap_summary_for_model(fitted_model, X_train, X_test, model_name, dataset_name, max_bg=200, max_test=300, random_state=42):
     """
     SHAP on a fitted sklearn Pipeline:
       - Transforms X via pipeline's 'preprocess'
@@ -73,9 +74,9 @@ def shap_summary_for_model(fitted_model, X_train, X_test, model_name, max_bg=200
       - Works whether the clf exposes predict_proba or decision_function
     Produces a beeswarm + bar plot. Keeps runtime light via sampling.
     """
-
     model = model_name.lower()
-    folder = Path(f"reports/{model}")
+    dataset = dataset_name.lower()
+    folder = Path(os.path.join(CURRENT_DIR, "reports", model))
     folder.mkdir(parents=True, exist_ok=True)
 
     # 1) Get steps
@@ -120,19 +121,19 @@ def shap_summary_for_model(fitted_model, X_train, X_test, model_name, max_bg=200
     shap.plots.beeswarm(sv_pos, show=False, max_display=20)
     plt.title(f"SHAP Beeswarm — {model_name}" + (" (class=1)" if class_index == 1 else ""))
     plt.tight_layout()
-    plt.savefig(f"reports/{model}/{model}_shap_beeswarm.png")
+    plt.savefig(f"reports/{model}/{model}_{dataset}_shap_beeswarm.png")
     plt.close()
 
     plt.figure(figsize=(8, 5))
     shap.plots.bar(sv_pos, show=False, max_display=15)
     plt.title(f"SHAP Top Features — {model_name}" + (" (class=1)" if class_index == 1 else ""))
     plt.tight_layout()
-    plt.savefig(f"reports/{model}/{model}_shap_barplot.png")
+    plt.savefig(f"reports/{model}/{model}_{dataset}_shap_barplot.png")
     plt.close()
 
 def shap_summary_for_model_xgboost(fitted_model, X_test, y_test, model_name = "XGBoost"):
     model = model_name.lower()
-    folder = Path(f"reports/{model}")
+    folder = Path(os.path.join(CURRENT_DIR, "reports", model))
     folder.mkdir(parents=True, exist_ok=True)
 
     explainer = shap.Explainer(fitted_model.predict_proba, X_test)
