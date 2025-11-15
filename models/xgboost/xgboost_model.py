@@ -165,7 +165,7 @@ for name, (x, y) in datasets.items():
         studies[name] = None 
         models[name] = model_saved
         best_features[name] = cols_saved
-        metrics[name] = evaluate_and_plot(model_saved, X_test.loc[:, cols_saved], y_test, title="XGBoost", label=name, threshold=0.5)
+        metrics[name] = evaluate_and_plot(model_saved, X_test.loc[:, cols_saved], y_test, model_name='XGBoost', dataset_name=name)
 
         continue  # skip tuning/refit for this dataset
 
@@ -212,7 +212,7 @@ for name, (x, y) in datasets.items():
     models[name] = final_model
 
     # Evaluate on test set
-    metrics[name] = evaluate_and_plot(final_model, X_test.loc[:, best_cols], y_test, title="XGBoost", label=name, threshold=0.5)
+    metrics[name] = evaluate_and_plot(model_saved, X_test.loc[:, cols_saved], y_test, model_name='XGBoost', dataset_name=name)
 
     # Save artifacts (model, features, meta)
     save_artifacts_joblib(name, study, final_model, best_cols)
