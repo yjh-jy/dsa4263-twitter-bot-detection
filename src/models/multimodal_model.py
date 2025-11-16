@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-multimodal.py
+multimodal_model.py
 
 Unified multimodal training script for Twitter bot detection.
 
@@ -25,16 +25,16 @@ Typical usage:
        --output-dir data/interim
 
 2. Prefetch images (optional but recommended)
-   python multimodal_bot_detection.py \
+   python multimodal_model.py \
        --csv data/interim/all_splits.csv \
        --prefetch-images
 
 3. Run full multimodal training
-   python multimodal_bot_detection.py \
+   python multimodal_model.py \
        --csv data/interim/all_splits.csv \
        --epochs 30 \
        --batch-size 32 \
-       --out-dir outputs
+       --out-dir outputs/multimodal
 
 Arguments (common):
 --csv                Path to CSV containing description, image URL, label
@@ -703,7 +703,7 @@ def main():
     ap.add_argument("--image-col", default="profile_image_url")
     ap.add_argument("--bio-col", default="description")
     ap.add_argument("--label-col", default="account_type")
-    ap.add_argument("--image-cache", default="image_cache")
+    ap.add_argument("--image-cache", default="data/image_cache")
     ap.add_argument("--out-dir", default="outputs")
     ap.add_argument("--batch-size", type=int, default=32)
     ap.add_argument("--epochs", type=int, default=30)

@@ -15,7 +15,7 @@ os.makedirs(REPORTS_DIR, exist_ok=True)
 import matplotlib.pyplot as plt
 import numpy as np
 import shap
-from visualize import evaluate_and_plot, shap_summary_for_model
+from viz.visualize_utility import evaluate_and_plot, shap_summary_for_model
 from scipy.stats import chi2
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
@@ -206,5 +206,5 @@ def main():
     print("\n=== Model Comparison (sorted by Test AUC) ===")
     print(summary_df.to_string(index=False))
 
-
-main()
+if __name__ == "__main__":
+    main()
