@@ -1,23 +1,57 @@
 #!/usr/bin/env python3
 """
-train_multimodal_joho.py
+multimodal.py
 
-Experiments:
-1) Text-only (DistilRoBERTa)
-2) Image-only (CLIP ViT-B/32 vision branch)
-3) Multimodal - Concatenation
-4) Multimodal - GMU
-5) Multimodal - Cross-Modal Attention (text seq <-> image patch tokens)
+Unified multimodal training script for Twitter bot detection.
 
-Backbone encoders (consistent across all experiments):
-- Text:    distilroberta-base  (hidden_size = 768)
-- Image:   openai/clip-vit-base-patch32 (vision hidden_size = 768)
+This script:
+- Loads multimodal data (text + profile image URL)
+- Optionally performs async image prefetching into the cache
+- Extracts image and text embeddings
+- Trains multiple multimodal architectures:
+    1) Text-only
+    2) Image-only
+    3) Concat Fusion
+    4) GMU Fusion
+    5) Cross-Modal Attention Fusion
+- Evaluates on val/test splits
+- Saves predictions, embeddings, and model weights
 
-Exports (under --out-dir):
-- results.json   (combined metrics & training curves for all models)
-- results.csv    (combined metrics table for all models)
-- test_preds_{model}.npz  (y_true, y_prob, y_pred)
-- embeddings_{split}_{model}.pt  (image_embs, text_embs, labels, has_bio, image_missing)
+Typical usage:
+
+1. Preprocess CSV dataset into train/val/test splits
+   python preprocessing_multimodal.py \
+       --input data/raw/twitter_human_bots_dataset.csv \
+       --output-dir data/interim
+
+2. Prefetch images (optional but recommended)
+   python multimodal_bot_detection.py \
+       --csv data/interim/all_splits.csv \
+       --prefetch-images
+
+3. Run full multimodal training
+   python multimodal_bot_detection.py \
+       --csv data/interim/all_splits.csv \
+       --epochs 30 \
+       --batch-size 32 \
+       --out-dir outputs
+
+Arguments (common):
+--csv                Path to CSV containing description, image URL, label
+--image-cache        Directory for cached images
+--prefetch-images    Download all unique URLs before training
+--prefetch-timeout   Per-request timeout for async downloader
+--prefetch-concurrency  Number of concurrent image download workers
+--batch-size         Batch size for training
+--epochs             Training epochs
+--device             cuda/mps/cpu (auto-detect if omitted)
+
+Outputs:
+- outputs/results.json
+- outputs/results.csv
+- outputs/test_preds_<model>.npz
+- outputs/embeddings_<split>_<model>.pt
+- outputs/<model>.pth
 """
 
 import os
@@ -26,6 +60,8 @@ import time
 import argparse
 import hashlib
 import warnings
+import asyncio
+import io
 from typing import Dict, Any, Tuple, List
 
 warnings.filterwarnings('ignore')
@@ -54,30 +90,196 @@ from transformers import (
     CLIPImageProcessor,
 )
 
+import aiohttp
+from aiohttp import ClientTimeout, TCPConnector
+
 # -------------------------------------------------------
-# Utilities: image cache naming and safe image load
+# Image cache utilities and async prefetch
 # -------------------------------------------------------
+
+DEFAULT_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (compatible; BotDetector/1.0; +https://example.org/botdetector)"
+}
+
+
 def url_to_cache_path(url: str, cache_dir: str) -> str:
     h = hashlib.sha1(url.encode("utf-8")).hexdigest()
     return os.path.join(cache_dir, h + ".jpg")
 
-def fetch_image_from_cache_or_placeholder(ref: str, cache_dir: str) -> Image.Image:
-    """Return PIL image if cached/exists; otherwise a black placeholder. No network."""
+
+def save_bytes_to_jpeg(data: bytes, path: str) -> bool:
+    """Decode bytes as RGB image and save as JPEG. Returns True if successful."""
     try:
+        img = Image.open(io.BytesIO(data)).convert("RGB")
+        img.save(path, format="JPEG", quality=85)
+        return True
+    except Exception:
+        return False
+
+
+def log_failed_url(url: str, cache_dir: str):
+    """Append a failed URL to failed_urls.txt for debugging."""
+    try:
+        os.makedirs(cache_dir, exist_ok=True)
+        with open(os.path.join(cache_dir, "failed_urls.txt"), "a", encoding="utf-8") as f:
+            f.write(f"{url}\n")
+    except Exception:
+        pass
+
+
+async def _fetch_and_cache(
+    session: aiohttp.ClientSession,
+    url: str,
+    cache_path: str,
+    max_bytes: int,
+    sem: asyncio.Semaphore,
+    timeout: float,
+):
+    """
+    Single async fetch + save to cache_path.
+    Returns (url, True/False, message).
+    """
+    # Skip if already cached
+    if os.path.exists(cache_path):
+        return (url, True, "cached")
+
+    async with sem:
+        try:
+            async with session.get(url, timeout=ClientTimeout(total=timeout)) as resp:
+                if resp.status != 200:
+                    msg = f"HTTP {resp.status}"
+                    log_failed_url(url, os.path.dirname(cache_path))
+                    return (url, False, msg)
+
+                total = 0
+                chunks = []
+                async for chunk in resp.content.iter_chunked(8192):
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > max_bytes:
+                        msg = f"TooLarge({total})"
+                        log_failed_url(url, os.path.dirname(cache_path))
+                        return (url, False, msg)
+                    chunks.append(chunk)
+
+                data = b"".join(chunks)
+                ok = save_bytes_to_jpeg(data, cache_path)
+                if not ok:
+                    msg = "decode-failed"
+                    log_failed_url(url, os.path.dirname(cache_path))
+                    return (url, False, msg)
+
+                return (url, True, "ok")
+        except Exception as e:
+            msg = repr(e)
+            log_failed_url(url, os.path.dirname(cache_path))
+            return (url, False, msg)
+
+
+async def async_prefetch_image_cache(
+    df: pd.DataFrame,
+    image_col: str,
+    cache_dir: str,
+    max_workers: int = 32,
+    max_bytes: int = 5_000_000,
+    timeout: float = 10.0,
+):
+    """
+    Prefetch unique HTTP(S) URLs in df[image_col] concurrently using aiohttp.
+    No synchronous downloads will be done elsewhere; training will rely entirely on this cache.
+    """
+    os.makedirs(cache_dir, exist_ok=True)
+
+    urls = pd.Series(df[image_col].dropna().unique()).astype(str).tolist()
+    urls = [u for u in urls if u.lower().startswith(("http://", "https://"))]
+
+    if len(urls) == 0:
+        print("[*] No URLs to prefetch.")
+        return
+
+    connector = TCPConnector(limit_per_host=max_workers, ssl=False)
+    sem = asyncio.Semaphore(max_workers)
+
+    successes = 0
+    failures = 0
+    tasks = []
+
+    async with aiohttp.ClientSession(
+        headers=DEFAULT_HEADERS,
+        connector=connector,
+        timeout=ClientTimeout(total=None),
+    ) as session:
+        for u in urls:
+            cache_path = url_to_cache_path(u, cache_dir)
+            tasks.append(_fetch_and_cache(session, u, cache_path, max_bytes, sem, timeout))
+
+        print(f"[+] Async prefetch starting: {len(tasks)} HTTP downloads (concurrency={max_workers}) ...")
+
+        BATCH = 256
+        done = 0
+
+        for i in range(0, len(tasks), BATCH):
+            batch = tasks[i:i + BATCH]
+            results = await asyncio.gather(*batch)
+            for (url, ok, msg) in results:
+                done += 1
+                if ok:
+                    successes += 1
+                else:
+                    failures += 1
+                if done % 250 == 0 or done == len(tasks):
+                    print(f"   prefetched {done}/{len(tasks)} (succ={successes} fail={failures})")
+
+    print(f"[+] Async prefetch done. success={successes} fail={failures}")
+
+
+def fetch_image_from_cache_or_placeholder(ref: str, cache_dir: str) -> Image.Image:
+    """
+    Return PIL image if cached/exists; otherwise a black placeholder (224x224).
+    No network I/O here – we rely solely on the prefetch step.
+    """
+    try:
+        # Remote URL: look in cache
         if isinstance(ref, str) and ref.lower().startswith(("http://", "https://")):
             p = url_to_cache_path(ref, cache_dir)
             if os.path.exists(p):
-                return Image.open(p).convert("RGB")
+                try:
+                    return Image.open(p).convert("RGB")
+                except Exception:
+                    # corrupted cache file; remove and mark as failed
+                    try:
+                        os.remove(p)
+                    except Exception:
+                        pass
+                    log_failed_url(ref, cache_dir)
+                    return Image.new("RGB", (224, 224), (0, 0, 0))
+
+            # not cached
+            log_failed_url(ref, cache_dir)
             return Image.new("RGB", (224, 224), (0, 0, 0))
-        else:
-            if os.path.exists(str(ref)):
+
+        # Local path
+        if os.path.exists(str(ref)):
+            try:
                 return Image.open(str(ref)).convert("RGB")
-            return Image.new("RGB", (224, 224), (0, 0, 0))
+            except Exception:
+                log_failed_url(str(ref), cache_dir)
+                return Image.new("RGB", (224, 224), (0, 0, 0))
+
+        # Missing local file
+        log_failed_url(str(ref), cache_dir)
+        return Image.new("RGB", (224, 224), (0, 0, 0))
     except Exception:
+        log_failed_url(str(ref), cache_dir)
         return Image.new("RGB", (224, 224), (0, 0, 0))
 
+
 def exists_in_cache_or_fs(ref: str, cache_dir: str) -> int:
-    """0 if present, 1 if missing (for image_missing flag)."""
+    """
+    Return 0 if image present (either cached URL or existing local path), 1 if missing.
+    This is used to set the image_missing flag.
+    """
     try:
         if isinstance(ref, str) and ref.lower().startswith(("http://", "https://")):
             return 0 if os.path.exists(url_to_cache_path(ref, cache_dir)) else 1
@@ -85,9 +287,11 @@ def exists_in_cache_or_fs(ref: str, cache_dir: str) -> int:
     except Exception:
         return 1
 
+
 # -------------------------------------------------------
 # Dataset
 # -------------------------------------------------------
+
 class BotDetectionDataset(Dataset):
     def __init__(
         self,
@@ -126,6 +330,7 @@ class BotDetectionDataset(Dataset):
             "img_ref": img_ref,
         }
 
+
 def collate_batch(
     batch: List[Dict[str, Any]],
     tokenizer,
@@ -134,7 +339,7 @@ def collate_batch(
 ) -> Dict[str, Any]:
     """Keep EVERYTHING on CPU here. Move to GPU later inside the loops."""
     images = [b["image"] for b in batch]
-    bios   = [b["bio"] for b in batch]
+    bios = [b["bio"] for b in batch]
 
     labels = torch.tensor([b["label"] for b in batch], dtype=torch.long)          # CPU
     has_bio = torch.tensor([b["has_bio"] for b in batch], dtype=torch.float32)    # CPU
@@ -146,23 +351,26 @@ def collate_batch(
     )  # CPU
 
     return {
-        "pixel_values": pixel_values,              # (B, 3, H, W) CPU
-        "input_ids": tokenized["input_ids"],       # CPU
-        "attention_mask": tokenized["attention_mask"],  # CPU
-        "labels": labels,                          # CPU
-        "has_bio": has_bio,                        # CPU
-        "image_missing": image_missing,            # CPU
+        "pixel_values": pixel_values,                    # (B, 3, H, W) CPU
+        "input_ids": tokenized["input_ids"],             # CPU
+        "attention_mask": tokenized["attention_mask"],   # CPU
+        "labels": labels,                                # CPU
+        "has_bio": has_bio,                              # CPU
+        "image_missing": image_missing,                  # CPU
     }
+
 
 # -------------------------------------------------------
 # Backbones
 # -------------------------------------------------------
+
 def get_text_backbone(device: str):
     text_name = "distilroberta-base"
     tok = AutoTokenizer.from_pretrained(text_name)
     model = AutoModel.from_pretrained(text_name).to(device)
     hidden = model.config.hidden_size  # 768
     return tok, model, hidden
+
 
 def get_vision_backbone(device: str):
     vis_name = "openai/clip-vit-base-patch32"
@@ -175,9 +383,11 @@ def get_vision_backbone(device: str):
     hidden = vision_model.config.hidden_size  # 768
     return image_processor, vision_model, hidden
 
+
 # -------------------------------------------------------
 # Heads / Multimodal models
 # -------------------------------------------------------
+
 class TextOnly(nn.Module):
     def __init__(self, text_model: AutoModel, hidden: int = 768):
         super().__init__()
@@ -192,6 +402,7 @@ class TextOnly(nn.Module):
         out = self.text(input_ids=input_ids, attention_mask=attention_mask)
         cls = out.last_hidden_state[:, 0, :]  # [CLS]/first token
         return self.classifier(cls)
+
 
 class ImageOnly(nn.Module):
     def __init__(self, vision_model: CLIPVisionModel, hidden: int = 768):
@@ -211,6 +422,7 @@ class ImageOnly(nn.Module):
         missing_vec = self.missing_img_emb.unsqueeze(0)  # (1,768)
         img_replaced = img_cls * (1.0 - miss) + missing_vec * miss
         return self.classifier(img_replaced)
+
 
 class ConcatFusion(nn.Module):
     def __init__(self, text_model: AutoModel, vision_model: CLIPVisionModel, hidden: int = 768):
@@ -233,6 +445,7 @@ class ConcatFusion(nn.Module):
         v = v * (1.0 - miss) + self.missing_img_emb.unsqueeze(0) * miss
         fused = self.fuse(torch.cat([t, v], dim=1))
         return self.classifier(fused)
+
 
 class GMUFusion(nn.Module):
     def __init__(self, text_model: AutoModel, vision_model: CLIPVisionModel, hidden: int = 768):
@@ -261,6 +474,7 @@ class GMUFusion(nn.Module):
         z = self.gate(torch.cat([t_raw, v_raw], dim=1))
         h = z * t + (1 - z) * v
         return self.classifier(h)
+
 
 class CrossAttentionFusion(nn.Module):
     def __init__(self, text_model: AutoModel, vision_model: CLIPVisionModel, hidden: int = 768, num_heads: int = 8):
@@ -303,9 +517,11 @@ class CrossAttentionFusion(nn.Module):
         fused = self.fuse(torch.cat([t_pool, i_pool], dim=1))
         return self.classifier(fused)
 
+
 # -------------------------------------------------------
 # Metrics / eval helpers
 # -------------------------------------------------------
+
 def compute_metrics_from_logits(y_true: np.ndarray, logits: np.ndarray) -> Dict[str, Any]:
     probs = 1.0 / (1.0 + np.exp(-logits))
     preds = (probs >= 0.5).astype(int)
@@ -333,6 +549,7 @@ def compute_metrics_from_logits(y_true: np.ndarray, logits: np.ndarray) -> Dict[
         "y_prob": probs,
     }
 
+
 @torch.no_grad()
 def evaluate_dl(model, loader, device) -> Tuple[Dict[str, Any], np.ndarray, np.ndarray, np.ndarray]:
     model.eval()
@@ -358,9 +575,11 @@ def evaluate_dl(model, loader, device) -> Tuple[Dict[str, Any], np.ndarray, np.n
     metrics = compute_metrics_from_logits(y_true, logits)
     return metrics, y_true, metrics["y_prob"], metrics["y_pred"]
 
+
 def export_preds(out_dir: str, model_key: str, y_true, y_prob, y_pred):
     np.savez(os.path.join(out_dir, f"test_preds_{model_key}.npz"),
              y_true=y_true, y_prob=y_prob, y_pred=y_pred)
+
 
 def export_embeddings(out_dir: str, split: str, model_key: str,
                       image_embs: np.ndarray, text_embs: np.ndarray,
@@ -373,9 +592,11 @@ def export_embeddings(out_dir: str, split: str, model_key: str,
         "image_missing": image_missing,
     }, os.path.join(out_dir, f"embeddings_{split}_{model_key}.pt"))
 
+
 # -------------------------------------------------------
 # Embedding extraction
 # -------------------------------------------------------
+
 @torch.no_grad()
 def extract_simple_embeddings(
     loader: DataLoader,
@@ -393,7 +614,8 @@ def extract_simple_embeddings(
 
     for batch in tqdm(loader, desc="Embeddings"):
         batch = {k: (v.to(device, non_blocking=True) if torch.is_tensor(v) else v) for k, v in batch.items()}
-        t_out = text_model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"], output_hidden_states=False, return_dict=True)
+        t_out = text_model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"],
+                           output_hidden_states=False, return_dict=True)
         last_hidden = t_out.last_hidden_state  # (B,L,768)
         att_mask = batch["attention_mask"].unsqueeze(-1).to(last_hidden.dtype)  # (B,L,1)
         pooled = (last_hidden * att_mask).sum(dim=1) / att_mask.sum(dim=1).clamp(min=1.0)  # (B,768)
@@ -408,15 +630,17 @@ def extract_simple_embeddings(
         image_missing.append(batch["image_missing"].cpu())
 
     image_embs = torch.cat(image_embs, dim=0).numpy()
-    text_embs  = torch.cat(text_embs, dim=0).numpy()
-    labels     = torch.cat(labels, dim=0).numpy()
-    has_bio    = torch.cat(has_bio, dim=0).numpy()
+    text_embs = torch.cat(text_embs, dim=0).numpy()
+    labels = torch.cat(labels, dim=0).numpy()
+    has_bio = torch.cat(has_bio, dim=0).numpy()
     image_missing = torch.cat(image_missing, dim=0).numpy()
     return image_embs, text_embs, labels, has_bio, image_missing
+
 
 # -------------------------------------------------------
 # Training loop with curves
 # -------------------------------------------------------
+
 def train_model(
     model: nn.Module,
     train_loader: DataLoader,
@@ -468,9 +692,11 @@ def train_model(
         model.load_state_dict(best_state)
     return model, curves
 
+
 # -------------------------------------------------------
 # Main
 # -------------------------------------------------------
+
 def main():
     ap = argparse.ArgumentParser(description="Multimodal Bot Detection with CLIP (vision) + DistilRoBERTa (text)")
     ap.add_argument("--csv", required=True)
@@ -487,6 +713,12 @@ def main():
     ap.add_argument("--lr", type=float, default=1e-4)
     ap.add_argument("--skip-text-only", action="store_true")
     ap.add_argument("--skip-image-only", action="store_true")
+    ap.add_argument("--prefetch-images", action="store_true",
+                    help="Asynchronously download & cache all images before training")
+    ap.add_argument("--prefetch-concurrency", type=int, default=32,
+                    help="Max concurrent HTTP requests for prefetch")
+    ap.add_argument("--prefetch-timeout", type=float, default=6.0,
+                    help="Timeout per request during prefetch")
     args = ap.parse_args()
 
     # Device
@@ -517,14 +749,40 @@ def main():
     if df[args.label_col].dtype == object or df[args.label_col].dtype == "O":
         df[args.label_col] = df[args.label_col].map({"bot": 1, "human": 0})
 
+    # Optional async prefetch over the full dataset
+    if args.prefetch_images:
+        print("[*] Starting async prefetch. This may take time depending on number of URLs.")
+        asyncio.run(
+            async_prefetch_image_cache(
+                df=df,
+                image_col=args.image_col,
+                cache_dir=args.image_cache,
+                max_workers=args.prefetch_concurrency,
+                max_bytes=5_000_000,
+                timeout=args.prefetch_timeout,
+            )
+        )
+    else:
+        print("[*] Skipping image prefetch. Will rely on whatever is already in the cache/local FS.")
+
     # Split
     if "split" in df.columns:
         train_df = df[df["split"] == "train"].drop(columns=["split"])
-        val_df   = df[df["split"] == "val"].drop(columns=["split"])
-        test_df  = df[df["split"] == "test"].drop(columns=["split"])
+        val_df = df[df["split"] == "val"].drop(columns=["split"])
+        test_df = df[df["split"] == "test"].drop(columns=["split"])
     else:
-        trainval_df, test_df = train_test_split(df, test_size=0.10, random_state=args.seed, stratify=df[args.label_col])
-        train_df, val_df = train_test_split(trainval_df, test_size=0.20, random_state=args.seed, stratify=trainval_df[args.label_col])
+        trainval_df, test_df = train_test_split(
+            df,
+            test_size=0.10,
+            random_state=args.seed,
+            stratify=df[args.label_col],
+        )
+        train_df, val_df = train_test_split(
+            trainval_df,
+            test_size=0.20,
+            random_state=args.seed,
+            stratify=trainval_df[args.label_col],
+        )
 
     print(f"Split sizes: train={len(train_df)}, val={len(val_df)}, test={len(test_df)}")
 
@@ -533,21 +791,21 @@ def main():
     image_processor, vision_model, vision_hidden = get_vision_backbone(device)
     assert text_hidden == vision_hidden == 768, "Expected 768-dim hidden for both backbones."
 
-    # Datasets / Loaders (pin_memory only helps if tensors are on CPU — which they are now)
+    # Datasets / Loaders
     def make_loader(split_df, shuffle: bool):
         ds = BotDetectionDataset(split_df, args.image_col, args.bio_col, args.label_col, args.image_cache)
         return DataLoader(
             ds,
             batch_size=args.batch_size,
             shuffle=shuffle,
-            num_workers=0,                         # keep 0 to avoid fork CUDA issues
+            num_workers=0,
             pin_memory=(device == "cuda"),
             collate_fn=lambda b: collate_batch(b, tokenizer, image_processor, args.max_length),
         )
 
     train_loader = make_loader(train_df, shuffle=True)
-    val_loader   = make_loader(val_df, shuffle=False)
-    test_loader  = make_loader(test_df, shuffle=False)
+    val_loader = make_loader(val_df, shuffle=False)
+    test_loader = make_loader(test_df, shuffle=False)
 
     # Fresh backbones for each experiment
     def fresh_text():
@@ -576,9 +834,9 @@ def main():
 
     # Run experiments
     for model_key, model in experiments:
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
         print(f"EXPERIMENT: {model_key}")
-        print("="*80)
+        print("=" * 80)
 
         # Train
         model = model.to(device)
@@ -648,9 +906,14 @@ def main():
     with open(os.path.join(args.out_dir, "results.json"), "w") as f:
         json.dump(combined_results_json, f, indent=2)
 
-    pd.DataFrame(combined_rows_csv).to_csv(os.path.join(args.out_dir, "results.csv"), index=False, float_format="%.6f")
+    pd.DataFrame(combined_rows_csv).to_csv(
+        os.path.join(args.out_dir, "results.csv"),
+        index=False,
+        float_format="%.6f"
+    )
 
     print("\n[+] All experiments completed. Combined results written to results.json and results.csv")
+
 
 if __name__ == "__main__":
     main()
