@@ -18,7 +18,6 @@ python preprocessing_multimodal.py \
 import os
 import argparse
 import pandas as pd
-import numpy as np
 from sklearn.model_selection import train_test_split
 
 
@@ -165,12 +164,12 @@ def main():
         args.seed
     )
     
-    print("\n[+] Preprocessing complete!")
-    print("\nNext steps:")
-    print("1. Prefetch images (if not done):")
-    print("   python train_multimodal_jh.py --prefetch-images --csv data/interim/all_splits.csv")
-    print("\n2. Run multimodal experiments:")
-    print("   python multimodal_bot_detection.py --csv data/interim/all_splits.csv")
+    print("\n[+] Preprocessing complete.")
+print("\nNext steps:")
+print("1. Prefetch images:")
+print("   python multimodal.py --csv data/interim/all_splits.csv --prefetch-images")
+print("\n2. Run multimodal experiments:")
+print("   python multimodal.py --csv data/interim/all_splits.csv")
 
 
 if __name__ == '__main__':
