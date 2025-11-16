@@ -7,7 +7,7 @@ PROJECT_ROOT = os.path.abspath(os.path.join(CURRENT_DIR, "..", ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
-DATA_DIR = os.path.join(PROJECT_ROOT, "data", "interim")
+DATA_DIR = os.path.join(PROJECT_ROOT, "data", "cleaned")
 
 REPORTS_DIR = os.path.join(PROJECT_ROOT, "reports")
 os.makedirs(REPORTS_DIR, exist_ok=True)

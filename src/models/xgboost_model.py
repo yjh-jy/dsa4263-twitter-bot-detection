@@ -119,10 +119,10 @@ def main():
 
         return objective
 
-    train_df = pd.read_csv("data/interim/twitter_train_processed.csv")
-    test_df = pd.read_csv("data/interim/twitter_test_processed.csv")
-    train_adasyn_df = pd.read_csv("data/interim/twitter_train_processed_adasyn.csv")
-    train_smote_df = pd.read_csv("data/interim/twitter_train_processed_smote.csv")
+    train_df = pd.read_csv("data/cleaned/twitter_train_processed.csv")
+    test_df = pd.read_csv("data/cleaned/twitter_test_processed.csv")
+    train_adasyn_df = pd.read_csv("data/cleaned/twitter_train_processed_adasyn.csv")
+    train_smote_df = pd.read_csv("data/cleaned/twitter_train_processed_smote.csv")
 
     seed = 42
 

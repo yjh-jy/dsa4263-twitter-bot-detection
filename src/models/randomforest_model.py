@@ -8,7 +8,7 @@ import itertools
 
 # File path to store model, best models & features
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-DATA_DIR = os.path.join(ROOT_DIR, 'data', 'interim')
+DATA_DIR = os.path.join(ROOT_DIR, 'data', 'cleaned')
 MODEL_DIR = os.path.join(ROOT_DIR, 'models', 'randomforest')
 REPORT_DIR = os.path.join(ROOT_DIR, 'reports', 'randomforest')
 
