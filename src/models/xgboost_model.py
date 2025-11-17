@@ -11,9 +11,7 @@ from sklearn.metrics import recall_score
 from sklearn.feature_selection import RFE
 from xgboost import XGBClassifier
 from sklearn.metrics import average_precision_score, precision_score, recall_score, precision_recall_curve
-sys.path.append(str(Path(__file__).resolve().parents[2]))
-from viz.visualize_utility import evaluate_and_plot, shap_summary_for_model_xgboost
-
+from src.viz.visualize_utility import evaluate_and_plot, shap_summary_for_model_xgboost
 
 def main():
     folder = Path(__file__).parent

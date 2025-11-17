@@ -5,12 +5,12 @@ preprocessing_multimodal.py
 Preprocessing script that prepares data for multimodal bot detection.
 - Creates train/test/val splits
 - Preserves raw text (description) and image URLs
-- Saves splits to interim folder
+- Saves splits to cleaned folder
 
 Usage:
 python preprocessing_multimodal.py \
   --input data/raw/twitter_human_bots_dataset.csv \
-  --output-dir data/interim \
+  --output-dir data/cleaned \
   --test-size 0.2 \
   --seed 42
 """
@@ -140,7 +140,7 @@ def main():
     )
     parser.add_argument(
         '--output-dir',
-        default='data/interim',
+        default='data/cleaned',
         help='Output directory for processed splits'
     )
     parser.add_argument(
@@ -165,11 +165,11 @@ def main():
     )
     
     print("\n[+] Preprocessing complete.")
-print("\nNext steps:")
-print("1. Prefetch images:")
-print("   python multimodal.py --csv data/interim/all_splits.csv --prefetch-images")
-print("\n2. Run multimodal experiments:")
-print("   python multimodal.py --csv data/interim/all_splits.csv")
+    print("\nNext steps:")
+    print("1. Prefetch images:")
+    print("   python multimodal.py --csv data/cleaned/all_splits.csv --prefetch-images")
+    print("\n2. Run multimodal experiments:")
+    print("   python multimodal.py --csv data/cleaned/all_splits.csv")
 
 
 if __name__ == '__main__':

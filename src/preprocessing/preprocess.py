@@ -138,7 +138,7 @@ pipe_adasyn = ImbPipeline([
 ])
 
 
-# Ingest CSV into interim folder
+# Ingest CSV into cleaned folder
 
 # Original
 pipe.fit(X_train, y_train)
@@ -157,9 +157,9 @@ val_out = X_val_proc_df.assign(account_type = y_val.values)
 test_out  = X_test_proc_df.assign(account_type=y_test.values)
 
 
-train_out.to_csv("data/interim/twitter_train_processed.csv", index=False)
-val_out.to_csv("data/interim/twitter_val_processed.csv", index=False)
-test_out.to_csv("data/interim/twitter_test_processed.csv", index=False)
+train_out.to_csv("data/cleaned/twitter_train_processed.csv", index=False)
+val_out.to_csv("data/cleaned/twitter_val_processed.csv", index=False)
+test_out.to_csv("data/cleaned/twitter_test_processed.csv", index=False)
 
 
 #SMOTE
@@ -174,7 +174,7 @@ feat_names_smote = preproc.get_feature_names_out()
 
 pd.DataFrame(X_smote_proc, columns=feat_names_smote)\
   .assign(account_type=y_smote.values)\
-  .to_csv("data/interim/twitter_train_processed_SMOTE.csv", index=False)
+  .to_csv("data/cleaned/twitter_train_processed_SMOTE.csv", index=False)
 
 
 #ADASYN
@@ -191,7 +191,7 @@ feat_names_adasyn = preproc.get_feature_names_out()
 
 pd.DataFrame(X_adasyn_proc, columns=feat_names_adasyn)\
   .assign(account_type=y_adasyn.values)\
-  .to_csv("data/interim/twitter_train_processed_ADASYN.csv", index=False)
+  .to_csv("data/cleaned/twitter_train_processed_ADASYN.csv", index=False)
 
 
 # Or can just export the pipe 

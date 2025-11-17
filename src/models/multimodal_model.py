@@ -22,16 +22,16 @@ Typical usage:
 1. Preprocess CSV dataset into train/val/test splits
    python preprocessing_multimodal.py \
        --input data/raw/twitter_human_bots_dataset.csv \
-       --output-dir data/interim
+       --output-dir data/cleaned
 
 2. Prefetch images (optional but recommended)
    python multimodal_model.py \
-       --csv data/interim/all_splits.csv \
+       --csv data/cleaned/all_splits.csv \
        --prefetch-images
 
 3. Run full multimodal training
    python multimodal_model.py \
-       --csv data/interim/all_splits.csv \
+       --csv data/cleaned/all_splits.csv \
        --epochs 30 \
        --batch-size 32 \
        --out-dir outputs/multimodal
@@ -100,7 +100,6 @@ from aiohttp import ClientTimeout, TCPConnector
 DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; BotDetector/1.0; +https://example.org/botdetector)"
 }
-
 
 def url_to_cache_path(url: str, cache_dir: str) -> str:
     h = hashlib.sha1(url.encode("utf-8")).hexdigest()
@@ -366,19 +365,25 @@ def collate_batch(
 
 def get_text_backbone(device: str):
     text_name = "distilroberta-base"
-    tok = AutoTokenizer.from_pretrained(text_name)
-    model = AutoModel.from_pretrained(text_name).to(device)
+    tok = AutoTokenizer.from_pretrained(
+        text_name
+        )
+    model = AutoModel.from_pretrained(
+        text_name, 
+        ).to(device)
     hidden = model.config.hidden_size  # 768
     return tok, model, hidden
 
 
 def get_vision_backbone(device: str):
     vis_name = "openai/clip-vit-base-patch32"
-    image_processor = CLIPImageProcessor.from_pretrained(vis_name)
+    image_processor = CLIPImageProcessor.from_pretrained(
+        vis_name, 
+        )
     vision_model = CLIPVisionModel.from_pretrained(
         vis_name,
-        use_safetensors=True,
-        dtype=torch.float32,   # avoid torch_dtype deprecation warnings
+        # use_safetensors=True,
+        # dtype=torch.float32,   # avoid torch_dtype deprecation warnings
     ).to(device)
     hidden = vision_model.config.hidden_size  # 768
     return image_processor, vision_model, hidden
@@ -814,8 +819,8 @@ def main():
     def fresh_vision():
         return CLIPVisionModel.from_pretrained(
             "openai/clip-vit-base-patch32",
-            use_safetensors=True,
-            dtype=torch.float32
+            # use_safetensors=True,
+            # dtype=torch.float32
         ).to(device)
 
     experiments = []
