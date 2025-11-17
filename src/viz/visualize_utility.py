@@ -154,6 +154,7 @@ def shap_summary_for_model_xgboost(fitted_model, X_test, y_test, model_name = "X
     plt.title(f"SHAP Beeswarm — {model_name}" + (" (class=1)"))
     plt.tight_layout()
     plt.savefig(f"reports/{model}/{model}_shap_beeswarm.png")
+    print(f'Saved Beeswarm plots at: reports/{model}/{model}_shap_beeswarm.png')
     plt.close()
 
     # Barplot
@@ -165,4 +166,5 @@ def shap_summary_for_model_xgboost(fitted_model, X_test, y_test, model_name = "X
     plt.title(f"SHAP Top Features — {model_name}" + (" (class=1)"))
     plt.tight_layout()
     plt.savefig(f"reports/{model}/{model}_shap_barplot.png")
+    print(f'Saved bar plots at: reports/{model}/{model}_shap_barplot.png')
     plt.close()
