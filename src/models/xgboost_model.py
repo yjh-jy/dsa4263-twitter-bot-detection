@@ -13,110 +13,108 @@ from xgboost import XGBClassifier
 from sklearn.metrics import average_precision_score, precision_score, recall_score, precision_recall_curve
 from src.viz.visualize_utility import evaluate_and_plot, shap_summary_for_model_xgboost
 
-def main():
-    folder = Path(__file__).parent
-    folder.mkdir(parents=True, exist_ok=True)
-    optuna.logging.set_verbosity(optuna.logging.ERROR)
+optuna.logging.set_verbosity(optuna.logging.ERROR)
 
-    def artifact_paths(name):
+def artifact_paths(name):
         # Return file paths for artifacts for a given dataset name
         return {
-            "model": folder / f"final_model_{name}.joblib",
-            "features": folder / f"best_features_{name}.joblib",
-            "meta": folder / f"study_meta_{name}.json",
-            "study": folder / f"optuna_study_{name}.joblib"
+            "model": Path(f"models/xgboost/final_model_{name}.joblib"),
+            "features": Path(f"models/xgboost/best_features_{name}.joblib"),
+            "meta": Path(f"models/xgboost/study_meta_{name}.json"),
+            "study":  Path(f"models/xgboost/optuna_study_{name}.joblib")
         }
 
-    def load_artifacts_joblib(name):
-        p = artifact_paths(name)
-        if p["model"].exists() and p["features"].exists() and p["meta"].exists():
-            model = joblib.load(p["model"])
-            features = joblib.load(p["features"])
-            with open(p["meta"], "r") as f:
-                meta = json.load(f)
-            return model, features, meta
-        return None, None, None
+def load_artifacts_joblib(name):
+    p = artifact_paths(name)
+    if p["model"].exists() and p["features"].exists() and p["meta"].exists():
+        model = joblib.load(p["model"])
+        features = joblib.load(p["features"])
+        with open(p["meta"], "r") as f:
+            meta = json.load(f)
+        return model, features, meta
+    return None, None, None
 
-    def save_artifacts_joblib(name, study, final_model, best_cols):
-        p = artifact_paths(name)
-        joblib.dump(final_model, p["model"])
-        joblib.dump(best_cols, p["features"])
-        meta = {
-            "best_params": study.best_params,
-            "best_value": study.best_value,
-            "study_name": study.study_name
+def save_artifacts_joblib(name, study, final_model, best_cols):
+    p = artifact_paths(name)
+    joblib.dump(final_model, p["model"])
+    joblib.dump(best_cols, p["features"])
+    meta = {
+        "best_params": study.best_params,
+        "best_value": study.best_value,
+        "study_name": study.study_name
+    }
+    with open(p["meta"], "w") as f:
+        json.dump(meta, f, indent=2)
+
+def make_objective(x, y, seed, min_precision=0.7, n_splits=5):
+    def objective(trial):
+        pos = int(y.sum())
+        neg = len(y) - pos
+        default_spw = max(1.0, neg / max(1.0, pos))
+
+        params = {
+            "n_estimators": trial.suggest_int("n_estimators", 200, 800),
+            "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3, log=False),
+            "max_depth": trial.suggest_int("max_depth", 3, 7),
+            "subsample": trial.suggest_float("subsample", 0.6, 1.0),
+            "colsample_bytree": trial.suggest_float("colsample_bytree", 0.6, 1.0),
+            "scale_pos_weight": trial.suggest_float("scale_pos_weight", 1.0, default_spw * 3.0, log=True),
         }
-        with open(p["meta"], "w") as f:
-            json.dump(meta, f, indent=2)
 
-    def make_objective(x, y, seed, min_precision=0.7, n_splits=5):
-        def objective(trial):
-            pos = int(y.sum())
-            neg = len(y) - pos
-            default_spw = max(1.0, neg / max(1.0, pos))
+        feature_frac = trial.suggest_float("feature_fraction", 0.60, 0.95)
+        n_features_to_select = max(1, int(round(x.shape[1] * feature_frac)))
 
-            params = {
-                "n_estimators": trial.suggest_int("n_estimators", 200, 800),
-                "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3, log=False),
-                "max_depth": trial.suggest_int("max_depth", 3, 7),
-                "subsample": trial.suggest_float("subsample", 0.6, 1.0),
-                "colsample_bytree": trial.suggest_float("colsample_bytree", 0.6, 1.0),
-                "scale_pos_weight": trial.suggest_float("scale_pos_weight", 1.0, default_spw * 3.0, log=True),
-            }
+        skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+        recalls = []
 
-            feature_frac = trial.suggest_float("feature_fraction", 0.60, 0.95)
-            n_features_to_select = max(1, int(round(x.shape[1] * feature_frac)))
+        for fold_idx, (train_idx, val_idx) in enumerate(skf.split(x, y)):
+            X_tr, X_val_fold = x.iloc[train_idx], x.iloc[val_idx]
+            y_tr, y_val_fold = y.iloc[train_idx], y.iloc[val_idx]
 
-            skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
-            recalls = []
+            # RFE estimator 
+            rfe_estimator = XGBClassifier(
+                objective="binary:logistic",
+                eval_metric="logloss",
+                use_label_encoder=False,
+                random_state=seed,
+                n_jobs=-1,
+                verbosity=0,
+                **params,
+            )
 
-            for fold_idx, (train_idx, val_idx) in enumerate(skf.split(x, y)):
-                X_tr, X_val_fold = x.iloc[train_idx], x.iloc[val_idx]
-                y_tr, y_val_fold = y.iloc[train_idx], y.iloc[val_idx]
+            rfe = RFE(estimator=rfe_estimator, n_features_to_select=n_features_to_select, step=0.1)
+            rfe.fit(X_tr, y_tr)
 
-                # RFE estimator 
-                rfe_estimator = XGBClassifier(
-                    objective="binary:logistic",
-                    eval_metric="logloss",
-                    use_label_encoder=False,
-                    random_state=seed,
-                    n_jobs=-1,
-                    verbosity=0,
-                    **params,
-                )
+            selected_cols = X_tr.columns[rfe.support_]
 
-                rfe = RFE(estimator=rfe_estimator, n_features_to_select=n_features_to_select, step=0.1)
-                rfe.fit(X_tr, y_tr)
+            model = XGBClassifier(
+                objective="binary:logistic",
+                eval_metric="logloss",
+                use_label_encoder=False,
+                random_state=seed,
+                n_jobs=-1,
+                verbosity=0,
+                **params,
+            )
 
-                selected_cols = X_tr.columns[rfe.support_]
+            model.fit(X_tr.loc[:, selected_cols], y_tr)
 
-                model = XGBClassifier(
-                    objective="binary:logistic",
-                    eval_metric="logloss",
-                    use_label_encoder=False,
-                    random_state=seed,
-                    n_jobs=-1,
-                    verbosity=0,
-                    **params,
-                )
+            y_val_probs = model.predict_proba(X_val_fold.loc[:, selected_cols])[:, 1]
+            precisions, recalls_pr, threshold = precision_recall_curve(y_val_fold, y_val_probs)
 
-                model.fit(X_tr.loc[:, selected_cols], y_tr)
+            valid_mask = precisions[:-1] >= min_precision
+            valid_idxs = np.where(valid_mask)[0]
 
-                y_val_probs = model.predict_proba(X_val_fold.loc[:, selected_cols])[:, 1]
-                precisions, recalls_pr, threshold = precision_recall_curve(y_val_fold, y_val_probs)
+            best_idx = valid_idxs[np.argmax(recalls_pr[valid_idxs])]
+            chosen_recall = float(recalls_pr[best_idx])
 
-                valid_mask = precisions[:-1] >= min_precision
-                valid_idxs = np.where(valid_mask)[0]
+            recalls.append(chosen_recall)
 
-                best_idx = valid_idxs[np.argmax(recalls_pr[valid_idxs])]
-                chosen_recall = float(recalls_pr[best_idx])
+        return float(np.mean(recalls)) if len(recalls) > 0 else 0.0
 
-                recalls.append(chosen_recall)
+    return objective
 
-            return float(np.mean(recalls)) if len(recalls) > 0 else 0.0
-
-        return objective
-
+def main():
     train_df = pd.read_csv("data/cleaned/twitter_train_processed.csv")
     test_df = pd.read_csv("data/cleaned/twitter_test_processed.csv")
     train_adasyn_df = pd.read_csv("data/cleaned/twitter_train_processed_adasyn.csv")
