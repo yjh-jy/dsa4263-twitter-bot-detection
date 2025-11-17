@@ -52,9 +52,15 @@ prep-multimodal:
 # ============================================================
 
 # ---------- XGBoost ----------
-xgb:
+xgb: # evaluate and produce plots
 	$(DOCKER) run --rm runtime \
-		$(PYTHON) -m src.models.xgboost_model
+		$(PYTHON) -m src.models.xgboost_model \
+		--force-retrain False
+
+xgb-retrain: # only if you want to retrain, takes about 30mins to complete
+	$(DOCKER) run --rm runtime \
+			$(PYTHON) -m src.models.xgboost_model \
+			--force-retrain True
 
 # ---------- Random Forest ----------
 rf:
