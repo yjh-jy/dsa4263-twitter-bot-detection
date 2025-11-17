@@ -62,7 +62,7 @@ rf:
 		$(PYTHON) -m src.models.randomforest_model
 
 # ---------- Traditional ML Models ----------
-classic:
+trad:
 	$(DOCKER) run --rm runtime \
 		$(PYTHON) -m src.models.traditional_ml_model
 
