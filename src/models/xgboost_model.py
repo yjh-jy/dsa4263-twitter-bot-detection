@@ -1,3 +1,4 @@
+import argparse
 import numpy as np
 import pandas as pd
 import optuna
@@ -142,8 +143,6 @@ def main():
     X_tune_adasyn, y_tune_adasyn = pd.concat([X_train_adasyn, X_val], axis=0), pd.concat([y_train_adasyn, y_val], axis=0)
     X_tune_smote, y_tune_smote = pd.concat([X_train_smote, X_val], axis=0), pd.concat([y_train_smote, y_val], axis=0)
 
-    force_retrain = False # set True to ignore saved artifacts and re-run tuning/refit
-
     studies = {}
     models = {}
     best_features = {}
@@ -247,4 +246,8 @@ def main():
     shap_summary_for_model_xgboost(best_model, X_test_sub, y_test)
     
 if __name__ == "__main__":
+    ap = argparse.ArgumentParser(description="XGBoost training, tuning and evaluation script")
+    ap.add_argument("--force-retrain", default=False) # set True to ignore saved artifacts and re-run tuning/refit
+    args = ap.parse_args()
+    force_retrain = args.force_retrain 
     main()
