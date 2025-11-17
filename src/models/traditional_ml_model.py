@@ -15,7 +15,7 @@ os.makedirs(REPORTS_DIR, exist_ok=True)
 import matplotlib.pyplot as plt
 import numpy as np
 import shap
-from viz.visualize_utility import evaluate_and_plot, shap_summary_for_model
+from src.viz.visualize_utility import evaluate_and_plot, shap_summary_for_model
 from scipy.stats import chi2
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
