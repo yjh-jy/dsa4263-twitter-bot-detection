@@ -1,0 +1,32 @@
+services:
+  jupyter:
+    build: .
+    container_name: twitter-bot-jupyter
+    ports:
+      - "8888:8888"
+    volumes:
+      - .:/app
+      - ./data:/app/data
+      - models:/app/models
+      - reports:/app/reports
+    command: >
+      python -m jupyterlab
+      --ip=0.0.0.0
+      --port=8888
+      --no-browser
+      --ServerApp.token=
+      --ServerApp.password=
+
+  # Generic runtime for any script: preprocessing, training, eval, etc.
+  runtime:
+    build: .
+    container_name: twitter-bot-runtime
+    volumes:
+      - .:/app
+      - ./data:/app/data
+      - models:/app/models
+      - reports:/app/reports
+
+volumes:
+  models:
+  reports:
