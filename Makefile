@@ -1,6 +1,19 @@
 # ------------------------------------------------------------
-# Project Variables
+# Cross-platform settings (Bash, PowerShell, cmd)
 # ------------------------------------------------------------
+# On Unix-like systems, use bash; on Windows, let make use cmd.exe.
+# This keeps command bodies simple and compatible across shells.
+
+ifeq ($(OS),Windows_NT)
+  SHELL := cmd.exe
+  .SHELLFLAGS := /C
+  PYTHON := python
+else
+  SHELL := /bin/bash
+  .SHELLFLAGS := -c
+  PYTHON := python
+endif
+
 DOCKER := docker compose
 
 # ------------------------------------------------------------
@@ -18,41 +31,40 @@ build-nocache:
 notebook:
 	$(DOCKER) up jupyter
 
-
 # ============================================================
-# Preprocessing commands (edit script paths if needed)
+# Preprocessing commands
 # ============================================================
 
 # Preprocessing step for traditional, random forest, xgboost
 prep:
 	$(DOCKER) run --rm runtime \
-		python -m src.preprocessing.preprocess
+		$(PYTHON) -m src.preprocessing.preprocess
 
-# Optional (preprocessing step for mulitmodal model)
+# Optional (preprocessing step for multimodal model)
 prep-multimodal:
 	$(DOCKER) run --rm runtime \
-		python -m src.preprocessing.preprocess_multimodal \
+		$(PYTHON) -m src.preprocessing.preprocess_multimodal \
 		--input data/raw/twitter_human_bots_dataset.csv \
-       --output-dir data/cleaned/multimodal
+		--output-dir data/cleaned/multimodal
 
 # ============================================================
-# Individual model training + hyperparameter tuning + eval commands
+# Individual model training + evaluation commands
 # ============================================================
 
 # ---------- XGBoost ----------
 xgb:
 	$(DOCKER) run --rm runtime \
-		python -m src.models.xgboost_model 
+		$(PYTHON) -m src.models.xgboost_model
 
 # ---------- Random Forest ----------
 rf:
 	$(DOCKER) run --rm runtime \
-		python -m src.models.randomforest_model
+		$(PYTHON) -m src.models.randomforest_model
 
 # ---------- Traditional ML Models ----------
 classic:
 	$(DOCKER) run --rm runtime \
-		python -m src.models.traditional_ml_model
+		$(PYTHON) -m src.models.traditional_ml_model
 
 # Run all the main models sequentially
 all-models: xgb rf classic
@@ -62,7 +74,7 @@ all-models: xgb rf classic
 # ============================================================
 multimodal:
 	$(DOCKER) run --rm runtime \
-		python -m src.models.multimodal_model \
+		$(PYTHON) -m src.models.multimodal_model \
 		--csv data/cleaned/multimodal/all_splits.csv \
 		--epochs 30 \
 		--batch-size 32 \
@@ -91,6 +103,6 @@ clean:
 # ------------------------------------------------------------
 .PHONY: \
 	build build-nocache notebook \
-	prep-text prep-images prep-all \
+	prep prep-multimodal \
 	xgb rf classic all-models \
 	multimodal bash down clean
