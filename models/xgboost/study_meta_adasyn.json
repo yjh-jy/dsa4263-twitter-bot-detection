@@ -1,13 +1,13 @@
 {
   "best_params": {
-    "n_estimators": 457,
-    "learning_rate": 0.13153566232588135,
+    "n_estimators": 510,
+    "learning_rate": 0.09641857998095077,
     "max_depth": 7,
-    "subsample": 0.8493004761303558,
-    "colsample_bytree": 0.8351461195649289,
-    "scale_pos_weight": 1.7536147527935944,
-    "feature_fraction": 0.835016904764989
+    "subsample": 0.7139458590563611,
+    "colsample_bytree": 0.8428387681034857,
+    "scale_pos_weight": 1.6849651929367375,
+    "feature_fraction": 0.9427948784141713
   },
-  "best_value": 0.9845270362246825,
+  "best_value": 0.9853413623379161,
   "study_name": "xgb_adasyn"
 }

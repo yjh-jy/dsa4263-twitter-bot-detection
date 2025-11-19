@@ -1,13 +1,13 @@
 {
   "best_params": {
-    "n_estimators": 497,
-    "learning_rate": 0.06745426484909853,
+    "n_estimators": 743,
+    "learning_rate": 0.06014677927427314,
     "max_depth": 7,
-    "subsample": 0.7074477203671484,
-    "colsample_bytree": 0.8182404622558697,
-    "scale_pos_weight": 2.875767060704493,
-    "feature_fraction": 0.8989707287289287
+    "subsample": 0.8383420793134511,
+    "colsample_bytree": 0.8379742638870441,
+    "scale_pos_weight": 2.910934911954183,
+    "feature_fraction": 0.9452826305668613
   },
-  "best_value": 0.978870850496729,
+  "best_value": 0.9787739277925853,
   "study_name": "xgb_smote"
 }

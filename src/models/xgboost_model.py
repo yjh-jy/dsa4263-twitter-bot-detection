@@ -3,7 +3,6 @@ import pandas as pd
 import optuna
 import joblib
 import json
-import sys
 
 from pathlib import Path
 from sklearn.model_selection import train_test_split, StratifiedKFold
@@ -77,7 +76,7 @@ def make_objective(x, y, seed, min_precision=0.7, n_splits=5):
                 eval_metric="logloss",
                 use_label_encoder=False,
                 random_state=seed,
-                n_jobs=-1,
+                n_jobs=2,
                 verbosity=0,
                 **params,
             )
@@ -92,7 +91,7 @@ def make_objective(x, y, seed, min_precision=0.7, n_splits=5):
                 eval_metric="logloss",
                 use_label_encoder=False,
                 random_state=seed,
-                n_jobs=-1,
+                n_jobs=2,
                 verbosity=0,
                 **params,
             )
@@ -184,7 +183,7 @@ def main():
             eval_metric="logloss",
             use_label_encoder=False,
             random_state=seed,
-            n_jobs=-1,
+            n_jobs=2,
             verbosity=0,
             **best_params,
         )
@@ -201,7 +200,7 @@ def main():
             eval_metric="logloss",
             use_label_encoder=False,
             random_state=seed,
-            n_jobs=-1,
+            n_jobs=2,
             verbosity=0,
             **best_params,
         )
