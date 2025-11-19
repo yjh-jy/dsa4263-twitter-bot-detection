@@ -19,7 +19,7 @@ This script:
 
 Typical usage:
 
-1. Preprocess CSV dataset into train/val/test splits
+1. Preprocess CSV dataset into train/val/test splits (Optional, already preprocessed)
    python preprocessing_multimodal.py \
        --input data/raw/twitter_human_bots_dataset.csv \
        --output-dir data/cleaned
