@@ -122,7 +122,11 @@ All the following commands run inside the `runtime` container.
 #### XGBoost
 
 ```bash
-make xgb
+make xgb # evaluation only
+```
+
+```bash
+make xgb-retrain # for retraining xgboost model
 ```
 
 #### Random Forest
@@ -144,12 +148,12 @@ make trad
 make all-models
 ```
 
-#### Optional Multimodal Model
+#### (Optional) Multimodal Model
 
 ```bash
 make multimodal
 ```
-
+> [!WARNING] Note that this takes very long to complete as gpu support is not provided in this containerisation to accomodate for all systems (MacOS, Windows, Linux)
 Trained artefacts will appear under:
 
 ```

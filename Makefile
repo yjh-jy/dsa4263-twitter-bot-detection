@@ -76,7 +76,7 @@ trad:
 all-models: xgb rf classic
 
 # ============================================================
-# (Optional, training takes very long) Multimodal
+# (Optional, training takes very long as it uses cpu for compatability reasons) Multimodal
 # ============================================================
 multimodal:
 	$(DOCKER) run --rm runtime \
