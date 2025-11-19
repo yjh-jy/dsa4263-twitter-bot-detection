@@ -31,7 +31,7 @@ RUN mkdir -p \
       /app/notebooks
 
 # These will be mounted as volumes in docker-compose
-VOLUME ["/app/data", "/app/models", "/app/reports", "/app/image_cache"]
+VOLUME ["/app/data", "/app/models", "/app/reports"]
 
 # # Security — non-root user
 # RUN useradd -ms /bin/bash appuser && chown -R appuser /app
