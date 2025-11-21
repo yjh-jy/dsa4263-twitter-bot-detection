@@ -165,12 +165,6 @@ def main():
     )
     
     print("\n[+] Preprocessing complete.")
-    print("\nNext steps:")
-    print("1. Prefetch images:")
-    print("   python multimodal.py --csv data/cleaned/all_splits.csv --prefetch-images")
-    print("\n2. Run multimodal experiments:")
-    print("   python multimodal.py --csv data/cleaned/all_splits.csv")
-
 
 if __name__ == '__main__':
     main()
