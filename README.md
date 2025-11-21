@@ -2,6 +2,16 @@
 
 This repository contains a fully containerised and reproducible machine learning workflow for Twitter bot detection. It provides modular preprocessing, multiple classical ML models (XGBoost, Random Forest, Logistic Regression, LDA, QDA, Naive Bayes), and an optional multimodal deep-learning model. All scripts are executed inside a controlled Docker environment, with a **Makefile** providing a unified command interface.
 
+## Contributors:
+| Name                                       | Matriculation No. |
+| - | -- |
+| Roderich Suwandi Leee                        | A0259051H      |
+| Yoong Jun Han                                |  A0252837X   |
+| Ho Xin En Jolene                           |   A0257596J      |
+| Tay Xin Ru Rena                             | A0256841Y        |
+| Choy Qi Hui                                  |    A0259587E   |
+
+
 ## Directory Structure
 
 ```
